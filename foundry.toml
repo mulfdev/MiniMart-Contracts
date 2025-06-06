@@ -11,6 +11,7 @@ etherscan_api_key = "${ETHERSCAN_API_KEY}"
 mainnet = "${ETH_RPC_URL}"
 sepolia = "${SEPOLIA_RPC_URL}"
 base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
+local = "${ANVIL_RPC_URL}"
 
 [fmt]
 line_length = 100
