@@ -2,19 +2,19 @@
 pragma solidity ^0.8.0;
 
 import {Script, console} from "forge-std/Script.sol";
-import {MiniMartMarketplace} from "../src/MiniMartMarketplace.sol";
+import {MiniMart} from "../src/MiniMart.sol";
 
 contract CounterScript is Script {
-    MiniMartMarketplace public marketplace;
+    MiniMart public marketplace;
 
     function setUp() public {}
 
     function run() public {
-        vm.createSelectFork("base_sepolia");
+        vm.createSelectFork("local");
         vm.startBroadcast();
 
-        marketplace = new MiniMartMarketplace(
-            payable(0x75A6085Bbc25665B6891EA94475E6120897BA90b)
+        marketplace = new MiniMart(
+            payable(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
         );
 
         vm.stopBroadcast();
