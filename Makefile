@@ -110,7 +110,3 @@ help:
 	@echo "    Deploys 'script/YourScript.s.sol' to local Anvil (127.0.0.1:8545)."
 	@echo "    Uses a default Anvil private key."
 	@echo ""
-	@echo "To add a new command like 'deploy-custom <script.s.sol>':"
-	@echo "  1. Add 'deploy-custom' to SCRIPT_EXPECTING_COMMANDS list in this Makefile."
-	@echo "  2. Add a new target for 'deploy-custom' similar to 'deploy' or 'deploy-local'."
-	@echo "  3. Update .env with any necessary variables for the new command."
