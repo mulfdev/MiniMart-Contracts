@@ -10,12 +10,10 @@ contract CounterScript is Script {
     function setUp() public {}
 
     function run() public {
-        vm.createSelectFork("local");
+        vm.createSelectFork("base");
         vm.startBroadcast();
 
-        marketplace = new MiniMart(
-            payable(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
-        );
+        marketplace = new MiniMart(payable(vm.envAddress("WALLET_ADDR")));
 
         vm.stopBroadcast();
     }
