@@ -34,56 +34,66 @@ contract DeployLocal is Script, EIP712 {
         );
         marketplace = new MiniMart(payable(wallet), "MiniMart", "1");
 
-        nft.mint(wallet);
-        nft.mint(wallet);
+        for (uint i = 0; i <= 25; i++) {
+            nft.mint(wallet);
 
-        uint256 currentNonce = marketplace.nonces(wallet);
+            uint64 currentNonce = marketplace.nonces(wallet);
 
-        MiniMart.Order memory newOrder = MiniMart.Order({
-            price: 0.1 ether,
-            nftContract: address(nft),
-            tokenId: 1,
-            seller: wallet,
-            expiration: 0,
-            nonce: currentNonce
-        });
+            MiniMart.Order memory newOrder = MiniMart.Order({
+                price: 0.1 ether,
+                nftContract: address(nft),
+                tokenId: i,
+                seller: wallet,
+                expiration: 0,
+                nonce: currentNonce
+            });
 
-        bytes32 structHash = keccak256(
-            abi.encode(
-                marketplace.ORDER_TYPEHASH(),
-                newOrder.price,
-                newOrder.nftContract,
-                newOrder.tokenId,
-                newOrder.seller,
-                newOrder.expiration,
-                newOrder.nonce
-            )
-        );
+            bytes32 structHash = keccak256(
+                abi.encode(
+                    marketplace.ORDER_TYPEHASH(),
+                    newOrder.price,
+                    newOrder.nftContract,
+                    newOrder.tokenId,
+                    newOrder.seller,
+                    newOrder.expiration,
+                    newOrder.nonce
+                )
+            );
 
-        bytes32 domainSeparator = marketplace.DOMAIN_SEPARATOR();
+            bytes32 domainSeparator = marketplace.domainSeparator();
 
-        // Manually construct the final digest, replicating what _hashTypedDataV4 does.
-        // Formula: keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash))
-        bytes32 digest = keccak256(
-            abi.encodePacked("\x19\x01", domainSeparator, structHash)
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
-        bytes memory signature = abi.encodePacked(r, s, v);
+            // Manually construct the final digest, replicating what _hashTypedDataV4 does.
+            // Formula: keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash))
+            bytes32 digest = keccak256(
+                abi.encodePacked("\x19\x01", domainSeparator, structHash)
+            );
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
+            bytes memory signature = abi.encodePacked(r, s, v);
 
-        bytes32 newOrderId = marketplace.addOrder(newOrder, signature);
+            bytes32 newOrderId = marketplace.addOrder(newOrder, signature);
 
-        console.log("New order sumbitted. Order id: ");
-        console.logBytes32(newOrderId);
+            console.log("New order sumbitted. Order id: ");
+            console.logBytes32(newOrderId);
 
-        MiniMart.Order memory fetchedOrder = marketplace.getOrder(newOrderId);
+            MiniMart.Order memory fetchedOrder = marketplace.getOrder(
+                newOrderId
+            );
 
-        console.log("\n--- Fetched Order Details ---");
-        console.log("Price:", fetchedOrder.price);
-        console.log("NFT Contract:", fetchedOrder.nftContract);
-        console.log("Token ID:", fetchedOrder.tokenId);
-        console.log("Seller:", fetchedOrder.seller);
-        console.log("Expiration:", fetchedOrder.expiration);
-        console.log("---------------------------\n");
+            console.log("\n--- Fetched Order Details ---");
+            console.log("Price:", fetchedOrder.price);
+            console.log("NFT Contract:", fetchedOrder.nftContract);
+            console.log("Token ID:", fetchedOrder.tokenId);
+            console.log("Seller:", fetchedOrder.seller);
+            console.log("Expiration:", fetchedOrder.expiration);
+            console.log("---------------------------\n");
+            console.log("Removing Order\n");
+
+            uint256 gasBefore = gasleft();
+            marketplace.removeOrder(newOrderId);
+            uint256 gasAfter = gasleft();
+
+            console.log("Gas used for someFunction():", gasBefore - gasAfter);
+        }
 
         vm.stopBroadcast();
     }
