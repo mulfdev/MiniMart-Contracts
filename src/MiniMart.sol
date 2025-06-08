@@ -7,7 +7,7 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 
 contract MiniMart is Ownable, EIP712, ReentrancyGuard {
@@ -30,9 +30,9 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
             "Order(uint256 price,address nftContract,uint256 tokenId,address seller,uint256 expiration,uint256 nonce)"
         );
 
-    mapping(bytes32 orderhash => Order) public orders;
+    mapping(bytes32 orderHash => Order) public orders;
 
-    mapping(address => uint256) public nonces;
+    mapping(address seller => uint256 nonce) public nonces;
 
     event FeeRecipientUpdated(address indexed newRecipient);
     event OrderListed(
@@ -42,8 +42,9 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         uint256 tokenId,
         uint256 price
     );
+    event OrderRemoved(bytes32 indexed orderId);
+    event OrderFulfilled(bytes32 indexed OrderId, address indexed buyer);
 
-    error NotTokenOwner();
     error SignerMustBeSeller();
     error ZeroAddress();
     error AlreadyListed();
@@ -51,6 +52,9 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     error NonceIncorrect();
     error OrderPriceTooLow();
     error NonERC721Interface();
+    error NotListingCreator();
+    error NotTokenOwner();
+    error OrderNotFound();
 
     constructor(
         address initialOwner,
@@ -103,10 +107,19 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         return orderDigest;
     }
 
-    function getOrder(
-        bytes32 orderHash
-    ) public view returns (MiniMart.Order memory) {
+    function getOrder(bytes32 orderHash) public view returns (Order memory) {
         return orders[orderHash];
+    }
+
+    function removeOrder(bytes32 orderHash) external {
+        Order memory order = orders[orderHash];
+
+        require(order.seller != address(0), OrderNotFound());
+        require(order.seller == msg.sender, NotListingCreator());
+
+        delete orders[orderHash];
+
+        emit OrderRemoved(orderHash);
     }
 
     function _hashOrder(Order calldata order) internal view returns (bytes32) {
