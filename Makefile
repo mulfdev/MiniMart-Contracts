@@ -44,7 +44,7 @@ lint:
 
 clean:
 	@echo "Cleaning out and cache directories..."
-	rm -rf out cache broadcast # Added broadcast to clean
+	rm -rf out cache
 
 # This rule handles any target ending in .s.sol.
 # Its SOLE PURPOSE is to prevent "No rule to make target YourScript.s.sol" errors
