@@ -100,7 +100,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /*                        STATE VARIABLES                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    /// @notice The fee percentage in basis points (e.g., 150 = 01.5%).
+    /// @notice The fee percentage in basis points (e.g., 150 = 1.5%).
     uint8 public constant FEE_BPS = 150;
 
     /// @notice The recipient of marketplace fees.
