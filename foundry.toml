@@ -4,7 +4,7 @@ out = "out"
 libs = ["lib"]
 solc = '0.8.30'
 optimizer = true
-optimizer_runs = 1000
+optimizer_runs = 100000
 etherscan_api_key = "${ETHERSCAN_API_KEY}"
 
 [rpc_endpoints]
