@@ -1,40 +1,37 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.30;
 
+/// @author mulf: https://github.com/mulfdev
+
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
+/**
+ * @title MiniMart
+ * @notice A lightweight, signature-based NFT marketplace.
+ */
 contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     using ERC165Checker for address;
-    bytes32 public immutable DOMAIN_SEPARATOR;
 
-    uint8 public constant FEE_BPS = 15;
-    address public feeRecipient;
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                           EVENTS                           */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    struct Order {
-        uint256 price;
-        uint256 tokenId;
-        address nftContract;
-        uint64 expiration;
-        address seller;
-        uint64 nonce;
-    }
-    bytes32 public constant ORDER_TYPEHASH =
-        keccak256(
-            "Order(uint256 price,address nftContract,uint256 tokenId,address seller,uint256 expiration,uint256 nonce)"
-        );
-
-    mapping(bytes32 orderHash => Order) public orders;
-
-    mapping(address seller => uint64 nonce) public nonces;
-
+    /// @notice Emitted when the fee recipient address is updated.
+    /// @param newRecipient The address of the new fee recipient.
     event FeeRecipientUpdated(address indexed newRecipient);
+
+    /// @notice Emitted when a new order is successfully listed.
+    /// @param orderId The unique hash of the order.
+    /// @param seller The address of the seller.
+    /// @param nftContract The address of the NFT contract.
+    /// @param tokenId The ID of the token being listed.
+    /// @param price The price of the token in wei.
     event OrderListed(
         bytes32 indexed orderId,
         address indexed seller,
@@ -42,102 +39,198 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         uint256 tokenId,
         uint256 price
     );
-    event OrderRemoved(bytes32 indexed orderId);
-    event OrderFulfilled(bytes32 indexed OrderId, address indexed buyer);
 
+    /// @notice Emitted when an order is removed from the marketplace.
+    /// @param orderId The unique hash of the removed order.
+    event OrderRemoved(bytes32 indexed orderId);
+
+    /// @notice Emitted when an order is successfully fulfilled.
+    /// @param orderId The unique hash of the fulfilled order.
+    /// @param buyer The address of the buyer.
+    event OrderFulfilled(bytes32 indexed orderId, address indexed buyer);
+
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                           ERRORS                           */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    /// @notice The signer of the order must be the seller.
     error SignerMustBeSeller();
+    /// @notice The provided address cannot be the zero address.
     error ZeroAddress();
+    /// @notice The order has already been listed.
     error AlreadyListed();
+    /// @notice The order has expired.
     error OrderExpired();
+    /// @notice The provided nonce is incorrect.
     error NonceIncorrect();
+    /// @notice The order price is below the minimum threshold.
     error OrderPriceTooLow();
+    /// @notice The contract does not support the ERC721 interface.
     error NonERC721Interface();
+    /// @notice The caller is not the creator of the listing.
     error NotListingCreator();
+    /// @notice The seller is not the owner of the token.
     error NotTokenOwner();
+    /// @notice The specified order was not found.
     error OrderNotFound();
+    /// @notice The number of orders in a batch operation is invalid.
     error InvalidBatchSize();
 
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                           STRUCTS                          */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    /// @notice A struct representing a sell order for an NFT.
+    struct Order {
+        /// @dev The price of the NFT in wei.
+        uint256 price;
+        /// @dev The ID of the token being sold.
+        uint256 tokenId;
+        /// @dev The contract address of the NFT.
+        address nftContract;
+        /// @dev The Unix timestamp (seconds) when the order expires. 0 means no expiration.
+        uint64 expiration;
+        /// @dev The address of the seller.
+        address seller;
+        /// @dev The seller's nonce for this order, used to prevent replay attacks.
+        uint64 nonce;
+    }
+
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                        STATE VARIABLES                     */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    /// @notice The fee percentage in basis points (e.g., 150 = 01.5%).
+    uint8 public constant FEE_BPS = 150;
+
+    /// @notice The recipient of marketplace fees.
+    address public feeRecipient;
+
+    bytes32 public constant ORDER_TYPEHASH =
+        keccak256(
+            "Order(uint256 price,address nftContract,uint256 tokenId,address seller,uint256 expiration,uint256 nonce)"
+        );
+
+    /// @notice Mapping from an order hash to the corresponding Order struct.
+    mapping(bytes32 orderHash => Order order) public orders;
+
+    /// @notice Mapping from a seller's address to their current nonce.
+    mapping(address seller => uint64 nonce) public nonces;
+
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                         CONSTRUCTOR                        */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    /// @notice Initializes the contract, setting the owner, fee recipient, and EIP-712 domain.
+    /// @param initialOwner The initial owner and fee recipient of the contract.
+    /// @param name The EIP-712 domain name.
+    /// @param version The EIP-712 domain version.
     constructor(
         address initialOwner,
         string memory name,
         string memory version
     ) Ownable(initialOwner) EIP712(name, version) {
         feeRecipient = initialOwner;
-        DOMAIN_SEPARATOR = _domainSeparatorV4();
     }
 
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                    EXTERNAL FUNCTIONS                      */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    /**
+     * @notice Adds a new order to the marketplace after verifying the signature.
+     * @dev Validates the order details, checks ownership, and ensures the order is unique.
+     *      Increments the seller's nonce upon successful listing.
+     * @param order The Order struct containing the listing details.
+     * @param signature The EIP-712 signature of the order hash from the seller.
+     * @return orderDigest The unique hash of the newly created order.
+     */
     function addOrder(
         Order calldata order,
         bytes calldata signature
-    ) public nonReentrant returns (bytes32) {
+    ) external nonReentrant returns (bytes32 orderDigest) {
         IERC721 token = IERC721(order.nftContract);
-
-        bytes32 orderDigest = _hashOrder(order);
+        orderDigest = _hashOrder(order);
 
         address signer = ECDSA.recover(orderDigest, signature);
-        uint256 currentNonce = nonces[signer];
+        uint64 currentNonce = nonces[signer];
 
-        /// @dev if order expiration is zero, then it does not expire
-        if (order.expiration != 0) {
-            require(order.expiration > block.timestamp, OrderExpired());
+        if (order.expiration != 0 && order.expiration <= block.timestamp) {
+            revert OrderExpired();
+        }
+        if (signer != order.seller) revert SignerMustBeSeller();
+        if (signer == address(0)) revert ZeroAddress();
+        if (order.price <= 10000000000000 wei) revert OrderPriceTooLow();
+        if (orders[orderDigest].seller != address(0)) revert AlreadyListed();
+        if (order.nonce != currentNonce) revert NonceIncorrect();
+        if (signer != token.ownerOf(order.tokenId)) revert NotTokenOwner();
+        if (!order.nftContract.supportsInterface(type(IERC721).interfaceId)) {
+            revert NonERC721Interface();
         }
 
-        require(
-            order.nftContract.supportsInterface(0x80ac58cd),
-            NonERC721Interface()
-        );
-        require(signer == token.ownerOf(order.tokenId), NotTokenOwner());
-        require(signer == order.seller, SignerMustBeSeller());
-        require(signer != address(0), ZeroAddress());
-        require(order.price > 10000000000000 wei, OrderPriceTooLow());
-        require(orders[orderDigest].seller == address(0), AlreadyListed());
-        require(order.nonce == currentNonce, NonceIncorrect());
-
-        nonces[signer] += 1;
-
+        nonces[signer] = currentNonce + 1;
         orders[orderDigest] = order;
 
-        emit OrderListed(
-            orderDigest,
-            signer,
-            order.nftContract,
-            order.tokenId,
-            order.price
-        );
-
-        return orderDigest;
+        emit OrderListed({
+            orderId: orderDigest,
+            seller: signer,
+            nftContract: order.nftContract,
+            tokenId: order.tokenId,
+            price: order.price
+        });
     }
 
-    function getOrder(bytes32 orderHash) public view returns (Order memory) {
+    /**
+     * @notice Retrieves the details of a specific order.
+     * @param orderHash The hash of the order to retrieve.
+     * @return An Order struct containing the order details.
+     */
+    function getOrder(bytes32 orderHash) external view returns (Order memory) {
         return orders[orderHash];
     }
 
+    /**
+     * @notice Removes an existing order from the marketplace.
+     * @dev Can only be called by the seller who created the order.
+     * @param orderHash The hash of the order to remove.
+     */
     function removeOrder(bytes32 orderHash) public {
         Order memory order = orders[orderHash];
 
-        require(order.seller != address(0), OrderNotFound());
-        require(order.seller == msg.sender, NotListingCreator());
+        if (order.seller == address(0)) revert OrderNotFound();
+        if (order.seller != msg.sender) revert NotListingCreator();
 
         delete orders[orderHash];
 
-        emit OrderRemoved(orderHash);
+        emit OrderRemoved({orderId: orderHash});
     }
 
+    /**
+     * @notice Removes multiple orders in a single transaction.
+     * @dev Batch size is limited to prevent excessive gas usage.
+     * @param orderHashes An array of order hashes to be removed.
+     */
     function batchRemoveOrder(bytes32[] calldata orderHashes) external {
-        require(
-            orderHashes.length <= 25 && orderHashes.length > 0,
-            InvalidBatchSize()
-        );
+        uint256 len = orderHashes.length;
+        if (len == 0 || len > 25) revert InvalidBatchSize();
 
-        for (uint8 i = 0; i < orderHashes.length; i++) {
+        for (uint256 i = 0; i < len; ) {
             removeOrder(orderHashes[i]);
-
             unchecked {
-                i++;
+                ++i;
             }
         }
     }
 
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                     INTERNAL FUNCTIONS                     */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    /**
+     * @dev Hashes an order struct according to the EIP-712 standard.
+     * @param order The order to hash.
+     * @return The EIP-712 typed data hash.
+     */
     function _hashOrder(Order calldata order) internal view returns (bytes32) {
         bytes32 structHash = keccak256(
             abi.encode(
@@ -151,22 +244,33 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
             )
         );
 
-        return EIP712._hashTypedDataV4(structHash);
+        return _hashTypedDataV4(structHash);
     }
 
-    // Admin Functions
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                      ADMIN FUNCTIONS                       */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
+    /**
+     * @notice Updates the address that receives marketplace fees.
+     * @dev Can only be called by the contract owner.
+     * @param newRecipient The new address to receive fees.
+     */
     function updateFeeRecipient(
         address newRecipient
     ) external onlyOwner nonReentrant {
-        require(newRecipient != address(0), ZeroAddress());
+        if (newRecipient == address(0)) revert ZeroAddress();
 
         feeRecipient = newRecipient;
 
-        emit FeeRecipientUpdated(newRecipient);
+        emit FeeRecipientUpdated({newRecipient: newRecipient});
     }
 
-    receive() external payable {
+    /**
+     * @notice Receives ETH and forwards it to the fee recipient.
+     * @dev This can be used for donations or other direct payments to the contract.
+     */
+    receive() external payable nonReentrant {
         Address.sendValue(payable(feeRecipient), msg.value);
     }
 }
