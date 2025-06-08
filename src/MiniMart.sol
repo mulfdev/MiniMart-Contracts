@@ -137,6 +137,11 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /*                    EXTERNAL FUNCTIONS                      */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
+    /// @notice Returns the EIP-712 domain separator used by the contract.
+    function domainSeparator() external view returns (bytes32) {
+        return _domainSeparatorV4();
+    }
+
     /**
      * @notice Adds a new order to the marketplace after verifying the signature.
      * @dev Validates the order details, checks ownership, and ensures the order is unique.
