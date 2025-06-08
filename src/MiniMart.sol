@@ -11,6 +11,7 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 
 contract MiniMart is Ownable, EIP712, ReentrancyGuard {
+    using ERC165Checker for address;
     bytes32 public immutable DOMAIN_SEPARATOR;
 
     uint8 public constant FEE_BPS = 15;
@@ -18,13 +19,12 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
 
     struct Order {
         uint256 price;
-        address nftContract;
         uint256 tokenId;
+        address nftContract;
+        uint64 expiration;
         address seller;
-        uint256 expiration;
-        uint256 nonce;
+        uint64 nonce;
     }
-
     bytes32 public constant ORDER_TYPEHASH =
         keccak256(
             "Order(uint256 price,address nftContract,uint256 tokenId,address seller,uint256 expiration,uint256 nonce)"
@@ -32,7 +32,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
 
     mapping(bytes32 orderHash => Order) public orders;
 
-    mapping(address seller => uint256 nonce) public nonces;
+    mapping(address seller => uint64 nonce) public nonces;
 
     event FeeRecipientUpdated(address indexed newRecipient);
     event OrderListed(
@@ -55,6 +55,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     error NotListingCreator();
     error NotTokenOwner();
     error OrderNotFound();
+    error InvalidBatchSize();
 
     constructor(
         address initialOwner,
@@ -82,7 +83,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         }
 
         require(
-            IERC165(order.nftContract).supportsInterface(0x80ac58cd),
+            order.nftContract.supportsInterface(0x80ac58cd),
             NonERC721Interface()
         );
         require(signer == token.ownerOf(order.tokenId), NotTokenOwner());
@@ -111,7 +112,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         return orders[orderHash];
     }
 
-    function removeOrder(bytes32 orderHash) external {
+    function removeOrder(bytes32 orderHash) public {
         Order memory order = orders[orderHash];
 
         require(order.seller != address(0), OrderNotFound());
@@ -120,6 +121,21 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         delete orders[orderHash];
 
         emit OrderRemoved(orderHash);
+    }
+
+    function batchRemoveOrder(bytes32[] calldata orderHashes) external {
+        require(
+            orderHashes.length <= 25 && orderHashes.length > 0,
+            InvalidBatchSize()
+        );
+
+        for (uint8 i = 0; i < orderHashes.length; i++) {
+            removeOrder(orderHashes[i]);
+
+            unchecked {
+                i++;
+            }
+        }
     }
 
     function _hashOrder(Order calldata order) internal view returns (bytes32) {
