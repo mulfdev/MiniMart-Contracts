@@ -85,14 +85,13 @@ contract DeployLocal is Script, EIP712 {
             console.log("Token ID:", fetchedOrder.tokenId);
             console.log("Seller:", fetchedOrder.seller);
             console.log("Expiration:", fetchedOrder.expiration);
-            console.log("---------------------------\n");
-            console.log("Removing Order\n");
+            console.log("\n  Removing Order \n");
 
             uint256 gasBefore = gasleft();
             marketplace.removeOrder(newOrderId);
             uint256 gasAfter = gasleft();
 
-            console.log("Gas used for someFunction():", gasBefore - gasAfter);
+            console.log("Gas used:", gasBefore - gasAfter);
         }
 
         vm.stopBroadcast();
