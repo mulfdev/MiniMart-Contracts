@@ -22,9 +22,6 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /*                           EVENTS                           */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    /// @notice Emitted when the fee recipient address is updated.
-    /// @param newRecipient The address of the new fee recipient.
-
     /// @notice Emitted when a new order is successfully listed.
     /// @param orderId The unique hash of the order.
     /// @param seller The address of the seller.
@@ -106,6 +103,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /// @notice The fee percentage in basis points (e.g., 150 = 1.5%).
     uint8 public constant FEE_BPS = 150;
 
+    /// @notice type hash of the order struct for the _hashOrder function
     bytes32 public constant ORDER_TYPEHASH =
         keccak256(
             "Order(uint256 price,address nftContract,uint256 tokenId,address seller,uint64 expiration,uint64 nonce)"
@@ -124,8 +122,8 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /*                         CONSTRUCTOR                        */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    /// @notice Initializes the contract, setting the owner, fee recipient, and EIP-712 domain.
-    /// @param initialOwner The initial owner and fee recipient of the contract.
+    /// @notice Initializes the contract, setting the owner, and EIP-712 domain.
+    /// @param initialOwner The initial owner of the contract.
     /// @param name The EIP-712 domain name.
     /// @param version The EIP-712 domain version.
     constructor(
