@@ -37,6 +37,8 @@ contract DeployLocal is Script, EIP712 {
         for (uint i = 0; i <= 25; i++) {
             nft.mint(wallet);
 
+            uint256 gasBefore = gasleft();
+
             uint64 currentNonce = marketplace.nonces(wallet);
 
             MiniMart.Order memory newOrder = MiniMart.Order({
@@ -75,6 +77,10 @@ contract DeployLocal is Script, EIP712 {
             console.log("New order sumbitted. Order id: ");
             console.logBytes32(newOrderId);
 
+            uint256 gasAfter = gasleft();
+
+            console.log("Gas used:", gasBefore - gasAfter);
+
             MiniMart.Order memory fetchedOrder = marketplace.getOrder(
                 newOrderId
             );
@@ -87,11 +93,11 @@ contract DeployLocal is Script, EIP712 {
             console.log("Expiration:", fetchedOrder.expiration);
             console.log("\n  Removing Order \n");
 
-            uint256 gasBefore = gasleft();
+            uint256 gasBeforeRemoval = gasleft();
             marketplace.removeOrder(newOrderId);
-            uint256 gasAfter = gasleft();
+            uint256 gasAfterRemoval = gasleft();
 
-            console.log("Gas used:", gasBefore - gasAfter);
+            console.log("Gas used:", gasBeforeRemoval - gasAfterRemoval);
         }
 
         vm.stopBroadcast();
