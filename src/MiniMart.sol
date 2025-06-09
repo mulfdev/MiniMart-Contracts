@@ -24,7 +24,6 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
 
     /// @notice Emitted when the fee recipient address is updated.
     /// @param newRecipient The address of the new fee recipient.
-    event FeeRecipientUpdated(address indexed newRecipient);
 
     /// @notice Emitted when a new order is successfully listed.
     /// @param orderId The unique hash of the order.
@@ -75,6 +74,10 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     error OrderNotFound();
     /// @notice The number of orders in a batch operation is invalid.
     error InvalidBatchSize();
+    /// @notice The contract does not have pending fees for the owner to collect.
+    error NoPendingFees();
+    /// @notice The pending fees could not be withdrawn
+    error FeeWithdrawlFailed();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
@@ -103,12 +106,9 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /// @notice The fee percentage in basis points (e.g., 150 = 1.5%).
     uint8 public constant FEE_BPS = 150;
 
-    /// @notice The recipient of marketplace fees.
-    address public feeRecipient;
-
     bytes32 public constant ORDER_TYPEHASH =
         keccak256(
-            "Order(uint256 price,address nftContract,uint256 tokenId,address seller,uint256 expiration,uint256 nonce)"
+            "Order(uint256 price,address nftContract,uint256 tokenId,address seller,uint64 expiration,uint64 nonce)"
         );
 
     /// @notice Mapping from an order hash to the corresponding Order struct.
@@ -116,6 +116,9 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
 
     /// @notice Mapping from a seller's address to their current nonce.
     mapping(address seller => uint64 nonce) public nonces;
+
+    /// @notice storage for fees generated from sales.
+    uint256 public pendingFees;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         CONSTRUCTOR                        */
@@ -129,9 +132,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         address initialOwner,
         string memory name,
         string memory version
-    ) Ownable(initialOwner) EIP712(name, version) {
-        feeRecipient = initialOwner;
-    }
+    ) Ownable(initialOwner) EIP712(name, version) {}
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                    EXTERNAL FUNCTIONS                      */
@@ -168,10 +169,10 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         if (order.price <= 10000000000000 wei) revert OrderPriceTooLow();
         if (orders[orderDigest].seller != address(0)) revert AlreadyListed();
         if (order.nonce != currentNonce) revert NonceIncorrect();
-        if (signer != token.ownerOf(order.tokenId)) revert NotTokenOwner();
         if (!order.nftContract.supportsInterface(type(IERC721).interfaceId)) {
             revert NonERC721Interface();
         }
+        if (signer != token.ownerOf(order.tokenId)) revert NotTokenOwner();
 
         nonces[signer] = currentNonce + 1;
         orders[orderDigest] = order;
@@ -199,7 +200,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      * @dev Can only be called by the seller who created the order.
      * @param orderHash The hash of the order to remove.
      */
-    function removeOrder(bytes32 orderHash) public {
+    function removeOrder(bytes32 orderHash) public nonReentrant {
         Order memory order = orders[orderHash];
 
         if (order.seller == address(0)) revert OrderNotFound();
@@ -257,25 +258,24 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /**
-     * @notice Updates the address that receives marketplace fees.
-     * @dev Can only be called by the contract owner.
-     * @param newRecipient The new address to receive fees.
+     * @notice Allows the owner the withdraw pending fees
      */
-    function updateFeeRecipient(
-        address newRecipient
-    ) external onlyOwner nonReentrant {
-        if (newRecipient == address(0)) revert ZeroAddress();
+    function withdrawFees() external onlyOwner {
+        uint256 amount = pendingFees;
+        if (amount == 0) revert NoPendingFees();
 
-        feeRecipient = newRecipient;
+        pendingFees = 0;
 
-        emit FeeRecipientUpdated({newRecipient: newRecipient});
+        (bool ok, ) = owner().call{value: amount}("");
+
+        if (!ok) revert FeeWithdrawlFailed();
     }
 
     /**
-     * @notice Receives ETH and forwards it to the fee recipient.
+     * @notice Adds any eth sent to the contract to the pendingFees mapping
      * @dev This can be used for donations or other direct payments to the contract.
      */
-    receive() external payable nonReentrant {
-        Address.sendValue(payable(feeRecipient), msg.value);
+    receive() external payable {
+        pendingFees += msg.value;
     }
 }
