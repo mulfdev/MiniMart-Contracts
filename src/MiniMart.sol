@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.30;
 
-/// @author mulf: https://github.com/mulfdev
-
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
@@ -13,6 +10,7 @@ import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 /**
  * @title MiniMart
+ * @author mulf: https://github.com/mulfdev
  * @notice A lightweight, signature-based NFT marketplace.
  */
 contract MiniMart is Ownable, EIP712, ReentrancyGuard {
@@ -136,6 +134,27 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /*                    EXTERNAL FUNCTIONS                      */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
+    /**
+     * @dev Hashes an order struct according to the EIP-712 standard.
+     * @param order The order to hash.
+     * @return The EIP-712 typed data hash.
+     */
+    function _hashOrder(Order calldata order) public view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                ORDER_TYPEHASH,
+                order.price,
+                order.nftContract,
+                order.tokenId,
+                order.seller,
+                order.expiration,
+                order.nonce
+            )
+        );
+
+        return _hashTypedDataV4(structHash);
+    }
+
     /// @notice Returns the EIP-712 domain separator used by the contract.
     function domainSeparator() external view returns (bytes32) {
         return _domainSeparatorV4();
@@ -194,32 +213,29 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     }
 
     /**
-     * @notice Removes an existing order from the marketplace.
-     * @dev Can only be called by the seller who created the order.
-     * @param orderHash The hash of the order to remove.
+     * @notice Removes a listed NFT sell order.
+     * @dev Reverts if the order doesn’t exist or the caller is not its creator.
+     * @param orderHash The EIP‑712 hash of the order to remove.
      */
-    function removeOrder(bytes32 orderHash) public nonReentrant {
-        Order memory order = orders[orderHash];
-
-        if (order.seller == address(0)) revert OrderNotFound();
-        if (order.seller != msg.sender) revert NotListingCreator();
-
-        delete orders[orderHash];
-
-        emit OrderRemoved({orderId: orderHash});
+    function removeOrder(bytes32 orderHash) external nonReentrant {
+        _removeOrder(orderHash);
     }
 
     /**
      * @notice Removes multiple orders in a single transaction.
-     * @dev Batch size is limited to prevent excessive gas usage.
+     * @dev The caller must be the creator of all orders in the batch.
+     *      Batch size is limited to prevent excessive gas usage. Reverts if
+     *      any order in the batch does not exist or was not created by the caller.
      * @param orderHashes An array of order hashes to be removed.
      */
-    function batchRemoveOrder(bytes32[] calldata orderHashes) external {
+    function batchRemoveOrder(
+        bytes32[] calldata orderHashes
+    ) external nonReentrant {
         uint256 len = orderHashes.length;
         if (len == 0 || len > 25) revert InvalidBatchSize();
 
         for (uint256 i = 0; i < len; ) {
-            removeOrder(orderHashes[i]);
+            _removeOrder(orderHashes[i]);
             unchecked {
                 ++i;
             }
@@ -230,25 +246,15 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /*                     INTERNAL FUNCTIONS                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    /**
-     * @dev Hashes an order struct according to the EIP-712 standard.
-     * @param order The order to hash.
-     * @return The EIP-712 typed data hash.
-     */
-    function _hashOrder(Order calldata order) internal view returns (bytes32) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                ORDER_TYPEHASH,
-                order.price,
-                order.nftContract,
-                order.tokenId,
-                order.seller,
-                order.expiration,
-                order.nonce
-            )
-        );
+    function _removeOrder(bytes32 orderHash) private {
+        Order memory order = orders[orderHash];
 
-        return _hashTypedDataV4(structHash);
+        if (order.seller == address(0)) revert OrderNotFound();
+        if (order.seller != msg.sender) revert NotListingCreator();
+
+        delete orders[orderHash];
+
+        emit OrderRemoved({orderId: orderHash});
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -270,7 +276,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     }
 
     /**
-     * @notice Adds any eth sent to the contract to the pendingFees mapping
+     * @notice Adds any eth sent to the contract to pendingFees
      * @dev This can be used for donations or other direct payments to the contract.
      */
     receive() external payable {
