@@ -1,5 +1,5 @@
-const { writeFile } = require("fs/promises");
-const path = require("path");
+import { writeFile } from "fs/promises";
+import { join } from "path";
 
 const { OPENSEA_API_KEY } = process.env;
 
@@ -22,7 +22,7 @@ const options = {
 
 async function fetchCollections() {
   let cursor = "";
-  const filePath = path.join(__dirname, "collections.json");
+  const filePath = join(__dirname, "collections.json");
 
   const collectionData = [];
 
