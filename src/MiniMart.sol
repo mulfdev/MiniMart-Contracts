@@ -79,8 +79,11 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     error MarketplaceNotApproved();
     /// @notice The order value could not be sent to the seller.
     error CouldNotPaySeller();
-    /// @notice the token transfer was not completed.
+    /// @notice The token transfer was not completed.
     error TokenTransferFailed();
+    /// @notice The NFT contract is not on the whitelist
+    error ContractNotWhitelisted();
+
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
@@ -111,7 +114,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /// @notice type hash of the order struct for the _hashOrder function
     bytes32 public constant ORDER_TYPEHASH =
         keccak256(
-            "Order(uint256 price,address nftContract,uint256 tokenId,address seller,uint64 expiration,uint64 nonce)"
+            "Order(uint256 price,uint256 tokenId,address nftContract,uint64 expiration,address seller,uint64 nonce)"
         );
 
     /// @notice Mapping from an order hash to the corresponding Order struct.
@@ -154,10 +157,10 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
             abi.encode(
                 ORDER_TYPEHASH,
                 order.price,
-                order.nftContract,
                 order.tokenId,
-                order.seller,
+                order.nftContract,
                 order.expiration,
+                order.seller,
                 order.nonce
             )
         );
@@ -188,6 +191,9 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         address signer = ECDSA.recover(orderDigest, signature);
         uint64 currentNonce = nonces[signer];
 
+        bool whitelisted = whitelist[order.nftContract];
+
+        if (whitelisted == false) revert ContractNotWhitelisted();
         if (order.expiration != 0 && order.expiration <= block.timestamp) {
             revert OrderExpired();
         }
