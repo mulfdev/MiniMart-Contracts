@@ -272,10 +272,10 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     function batchRemoveOrder(
         bytes32[] calldata orderHashes
     ) external nonReentrant {
-        uint256 len = orderHashes.length;
-        if (len == 0 || len > 25) revert InvalidBatchSize();
+        if (orderHashes.length == 0 || orderHashes.length > 25)
+            revert InvalidBatchSize();
 
-        for (uint256 i = 0; i < len; ) {
+        for (uint8 i = 0; i < orderHashes.length; ) {
             _removeOrder(orderHashes[i]);
             unchecked {
                 ++i;
