@@ -20,28 +20,34 @@ const options = {
   },
 };
 
+type CollectionItem = {
+  name: string;
+  collection: string;
+  contractAddr: string;
+};
+
 async function fetchCollections() {
   let cursor = "";
   const filePath = join(__dirname, "collections.json");
 
-  const collectionData = [];
+  const collectionData: { items: CollectionItem[] } = { items: [] };
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 50; i++) {
     url.searchParams.set("next", cursor);
 
     const res = await fetch(url, options);
     if (!res.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(`HTTP error! status: ${res.status}`);
     }
     const data = await res.json();
 
     const tokens = data.collections;
 
     for (const token of tokens) {
-      collectionData.push({
+      collectionData.items.push({
         name: token.name,
         collection: token.collection,
-        contract: token.contracts[0]?.address,
+        contractAddr: token.contracts[0]?.address,
       });
     }
 
