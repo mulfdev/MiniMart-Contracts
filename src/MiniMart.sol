@@ -43,6 +43,11 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /// @param buyer The address of the buyer.
     event OrderFulfilled(bytes32 indexed orderId, address indexed buyer);
 
+    /// @notice Emitted when a contract's whitelist status changes.
+    /// @param nftContract The contract who's status was updated.
+    /// @param allowed If the contract is allowed or not.
+    event WhitelistUpdated(address nftContract, bool allowed);
+
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           ERRORS                           */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
@@ -82,7 +87,9 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /// @notice The token transfer was not completed.
     error TokenTransferFailed();
     /// @notice The NFT contract is not on the whitelist
-    error ContractNotWhitelisted();
+    error NotWhitelisted();
+    /// @notice the NFT contract is already on the whitelist;
+    error AlreadyWhitelisted();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
@@ -193,7 +200,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
 
         bool whitelisted = whitelist[order.nftContract];
 
-        if (whitelisted == false) revert ContractNotWhitelisted();
+        if (whitelisted == false) revert NotWhitelisted();
         if (order.expiration != 0 && order.expiration <= block.timestamp) {
             revert OrderExpired();
         }
@@ -305,6 +312,17 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         delete orders[orderHash];
 
         emit OrderRemoved({orderId: orderHash});
+    }
+
+    function setWhitelistStatus(
+        address nftContract,
+        bool allowed
+    ) external onlyOwner {
+        if (nftContract == address(0)) revert ZeroAddress();
+
+        whitelist[nftContract] = allowed;
+
+        emit WhitelistUpdated(nftContract, allowed);
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
