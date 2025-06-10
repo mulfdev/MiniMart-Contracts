@@ -73,7 +73,14 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     error NoPendingFees();
     /// @notice The pending fees could not be withdrawn
     error FeeWithdrawlFailed();
-
+    /// @notice The value of a transaction was too low for the order.
+    error TxValueTooLow();
+    /// @notice The marketplace contract is not approve for the given token id.
+    error MarketplaceNotApproved();
+    /// @notice The order value could not be sent to the seller.
+    error CouldNotPaySeller();
+    /// @notice the token transfer was not completed.
+    error TokenTransferFailed();
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
@@ -189,6 +196,10 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         if (!order.nftContract.supportsInterface(type(IERC721).interfaceId)) {
             revert NonERC721Interface();
         }
+        if (token.getApproved(order.tokenId) != address(this)) {
+            revert MarketplaceNotApproved();
+        }
+
         if (signer != token.ownerOf(order.tokenId)) revert NotTokenOwner();
 
         nonces[signer] = currentNonce + 1;
@@ -203,12 +214,42 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         });
     }
 
+    function fulfillOrder(bytes32 orderHash) public payable nonReentrant {
+        Order memory order = getOrder(orderHash);
+        IERC721 token = IERC721(order.nftContract);
+
+        if (order.seller == address(0)) revert OrderNotFound();
+        if (msg.value != order.price) revert TxValueTooLow();
+        if (token.ownerOf(order.tokenId) != order.seller) {
+            delete orders[orderHash];
+            emit OrderRemoved(orderHash);
+            revert NotTokenOwner();
+        }
+        if (token.getApproved(order.tokenId) != address(this)) {
+            delete orders[orderHash];
+            emit OrderRemoved(orderHash);
+            revert MarketplaceNotApproved();
+        }
+
+        delete orders[orderHash];
+
+        token.transferFrom(order.seller, msg.sender, order.tokenId);
+
+        if (token.ownerOf(order.tokenId) != msg.sender)
+            revert TokenTransferFailed();
+
+        (bool ok, ) = order.seller.call{value: order.price}("");
+        if (!ok) revert CouldNotPaySeller();
+
+        emit OrderFulfilled(orderHash, msg.sender);
+    }
+
     /**
      * @notice Retrieves the details of a specific order.
      * @param orderHash The hash of the order to retrieve.
      * @return An Order struct containing the order details.
      */
-    function getOrder(bytes32 orderHash) external view returns (Order memory) {
+    function getOrder(bytes32 orderHash) public view returns (Order memory) {
         return orders[orderHash];
     }
 
