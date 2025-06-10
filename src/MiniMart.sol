@@ -115,10 +115,13 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         );
 
     /// @notice Mapping from an order hash to the corresponding Order struct.
-    mapping(bytes32 orderHash => Order order) public orders;
+    mapping(bytes32 orderHash => Order) public orders;
 
     /// @notice Mapping from a seller's address to their current nonce.
     mapping(address seller => uint64 nonce) public nonces;
+
+    /// @notice Mapping for contract whitelist.
+    mapping(address contractAddress => bool allowed) public whitelist;
 
     /// @notice storage for fees generated from sales.
     uint256 public pendingFees;
