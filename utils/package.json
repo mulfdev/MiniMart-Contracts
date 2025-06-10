@@ -2,7 +2,7 @@
   "name": "utils",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -11,8 +11,18 @@
   "license": "ISC",
   "packageManager": "pnpm@10.11.0",
   "devDependencies": {
+    "@eslint/js": "^9.28.0",
     "@types/node": "^24.0.0",
+    "dotenv": "^16.5.0",
+    "eslint": "^9.28.0",
+    "eslint-config-prettier": "^10.1.5",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.34.0"
+  },
+  "dependencies": {
+    "@wagmi/connectors": "^5.8.5",
+    "@wagmi/core": "^2.17.3",
+    "viem": "~2.31.0"
   }
 }
