@@ -84,12 +84,12 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     error MarketplaceNotApproved();
     /// @notice The order value could not be sent to the seller.
     error CouldNotPaySeller();
-    /// @notice The token transfer was not completed.
-    error TokenTransferFailed();
     /// @notice The NFT contract is not on the whitelist
     error NotWhitelisted();
     /// @notice the NFT contract is already on the whitelist;
     error AlreadyWhitelisted();
+    /// @notice The contract fee could not be transfered to the contract;
+    error CouldNotPayFee();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
@@ -111,12 +111,17 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         uint64 nonce;
     }
 
+    struct WhitelistInfo {
+        address nftContract;
+        bool allowed;
+    }
+
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                        STATE VARIABLES                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    /// @notice The fee percentage in basis points (e.g., 150 = 1.5%).
-    uint8 public constant FEE_BPS = 150;
+    /// @notice The fee percentage in basis points (e.g., 300 = 3%).
+    uint16 public constant FEE_BPS = 300;
 
     /// @notice type hash of the order struct for the _hashOrder function
     bytes32 public constant ORDER_TYPEHASH =
@@ -236,6 +241,13 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
 
         if (order.seller == address(0)) revert OrderNotFound();
         if (msg.value != order.price) revert TxValueTooLow();
+
+        if (order.expiration != 0 && order.expiration <= block.timestamp) {
+            delete orders[orderHash];
+            emit OrderRemoved(orderHash);
+            revert OrderExpired();
+        }
+
         if (token.ownerOf(order.tokenId) != order.seller) {
             delete orders[orderHash];
             emit OrderRemoved(orderHash);
@@ -251,11 +263,12 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
 
         token.transferFrom(order.seller, msg.sender, order.tokenId);
 
-        if (token.ownerOf(order.tokenId) != msg.sender)
-            revert TokenTransferFailed();
+        uint256 fee = (order.price * FEE_BPS) / 10_000;
 
-        (bool ok, ) = order.seller.call{value: order.price}("");
-        if (!ok) revert CouldNotPaySeller();
+        pendingFees += fee;
+
+        (bool orderPayment, ) = order.seller.call{value: order.price - fee}("");
+        if (!orderPayment) revert CouldNotPaySeller();
 
         emit OrderFulfilled(orderHash, msg.sender);
     }
@@ -299,6 +312,30 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         }
     }
 
+    function setWhitelistStatus(
+        address nftContract,
+        bool allowed
+    ) external onlyOwner {
+        _setWhitelistStatus(nftContract, allowed);
+    }
+
+    function batchSetWhitelistStatus(
+        WhitelistInfo[] calldata whitelistInfo
+    ) external onlyOwner {
+        if (whitelistInfo.length == 0 || whitelistInfo.length > 100)
+            revert InvalidBatchSize();
+
+        for (uint8 i = 0; i < whitelistInfo.length; ) {
+            _setWhitelistStatus(
+                whitelistInfo[i].nftContract,
+                whitelistInfo[i].allowed
+            );
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                     INTERNAL FUNCTIONS                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
@@ -330,10 +367,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      * @param nftContract The address of the NFT contract to update.
      * @param allowed The desired whitelist status (`true` to add/allow, `false` to remove/disallow).
      */
-    function setWhitelistStatus(
-        address nftContract,
-        bool allowed
-    ) external onlyOwner {
+    function _setWhitelistStatus(address nftContract, bool allowed) private {
         if (nftContract == address(0)) revert ZeroAddress();
 
         whitelist[nftContract] = allowed;
