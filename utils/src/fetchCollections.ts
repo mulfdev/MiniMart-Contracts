@@ -1,5 +1,6 @@
 import { writeFile } from 'fs/promises';
-import { join } from 'path';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 const { OPENSEA_API_KEY } = process.env;
 
 if (!OPENSEA_API_KEY) throw new Error('OPENSEA KEY missing');
@@ -9,7 +10,7 @@ const url = new URL('https://api.opensea.io/api/v2/collections');
 url.searchParams.set('chain', 'base');
 url.searchParams.set('include_hidden', 'false');
 url.searchParams.set('limit', '100');
-url.searchParams.set('order_by', 'num_owners');
+url.searchParams.set('order_by', 'market_cap');
 
 const options = {
     method: 'GET',
@@ -19,22 +20,25 @@ const options = {
     },
 };
 
-type CollectionItem = {
+interface CollectionItem {
     name: string;
     collection: string;
     contracts: [{ address: string }];
-};
+}
 
-type ApiResponse = {
-    collections: CollectionItem[];
-    next: string;
-};
+interface ApiResponse {
+    collections?: CollectionItem[];
+    next?: string;
+}
 
 async function fetchCollections() {
     let cursor = '';
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+
     const filePath = join(__dirname, 'collections.json');
 
-    const collectionData: { items: CollectionItem[] } = { items: [] };
+    const collectionData: { items: { name: string; collection: string; contractAddr: string }[] } =
+        { items: [] };
 
     for (let i = 0; i < 50; i++) {
         url.searchParams.set('next', cursor);
@@ -45,12 +49,11 @@ async function fetchCollections() {
         }
         const data = (await res.json()) as ApiResponse;
 
-        if (!data.collections) {
-            console.log('could not get collections');
-            return;
-        }
+        const tokens = data.collections ?? [];
 
-        const tokens = data.collections;
+        if (!tokens) {
+            throw new Error('Couldnt fetch collections');
+        }
 
         for (const token of tokens) {
             collectionData.items.push({
@@ -60,8 +63,10 @@ async function fetchCollections() {
             });
         }
 
-        console.log('Number of collections found:', data.collections.length);
-        console.log('First collection name:', data.collections[0].name);
+        console.log('Number of collections found:', data?.collections?.length);
+        console.log('First collection name:', data?.collections?.[0]?.name);
+
+        if (!data.next) return;
         cursor = data.next;
 
         console.log(data.next);
