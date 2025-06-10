@@ -1,9 +1,11 @@
 {
     "compilerOptions": {
         "target": "ES2022",
-        "module": "ESNext",
-        "moduleResolution": "node",
+        "noUncheckedIndexedAccess": true,
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
         "strict": true,
+        "alwaysStrict": true,
         "esModuleInterop": true,
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
