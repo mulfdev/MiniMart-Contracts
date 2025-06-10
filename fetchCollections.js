@@ -1,5 +1,5 @@
-import { writeFile } from "fs/promises";
-import { join } from "path";
+const { writeFile } = require("fs").promises;
+const { join } = require("path");
 
 const { OPENSEA_API_KEY } = process.env;
 
@@ -26,7 +26,7 @@ async function fetchCollections() {
 
   const collectionData = [];
 
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 20; i++) {
     url.searchParams.set("next", cursor);
 
     const res = await fetch(url, options);
