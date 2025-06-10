@@ -303,6 +303,13 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /*                     INTERNAL FUNCTIONS                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
+    /**
+     * @dev The internal logic for removing a single order from the marketplace.
+     *      This function is called by `removeOrder` and `batchRemoveOrder`.
+     *      It performs the necessary checks to ensure the order exists and that
+     *      the caller is the original seller before deleting the order from storage.
+     * @param orderHash The unique EIP-712 hash of the order to be removed.
+     */
     function _removeOrder(bytes32 orderHash) private {
         Order memory order = orders[orderHash];
 
@@ -314,6 +321,15 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         emit OrderRemoved({orderId: orderHash});
     }
 
+    /**
+     * @notice Sets the whitelist status for a single NFT contract, controlled by the owner.
+     * @dev Allows the contract owner to add or remove an NFT contract from the whitelist.
+     *      Setting `allowed` to `true` adds the contract, and `false` removes it.
+     *      This function is idempotent, meaning calling it multiple times with the
+     *      same parameters will result in the same state.
+     * @param nftContract The address of the NFT contract to update.
+     * @param allowed The desired whitelist status (`true` to add/allow, `false` to remove/disallow).
+     */
     function setWhitelistStatus(
         address nftContract,
         bool allowed
