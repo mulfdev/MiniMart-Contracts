@@ -45,6 +45,18 @@ lint:
 clean:
 	@echo "Cleaning out and cache directories..."
 	rm -rf out cache
+slither:
+	slither . --filter-paths src/ --exclude-dependencies
+
+analyze:
+	rm -f analysis/minimart-runtime.hex
+	jq -r .deployedBytecode.object \
+	  out/MiniMart.sol/MiniMart.json \
+	  > analysis/minimart-runtime.hex
+	myth analyze -f analysis/minimart-runtime.hex
+
+
+
 
 # This rule handles any target ending in .s.sol.
 # Its SOLE PURPOSE is to prevent "No rule to make target YourScript.s.sol" errors
