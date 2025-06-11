@@ -75,11 +75,9 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /// @notice The number of orders in a batch operation is invalid.
     error InvalidBatchSize();
     /// @notice The contract does not have pending fees for the owner to collect.
-    error NoPendingFees();
-    /// @notice The pending fees could not be withdrawn
     error FeeWithdrawlFailed();
-    /// @notice The value of a transaction was too low for the order.
-    error TxValueTooLow();
+    /// @notice The value of a transaction was too wrong for the order.
+    error OrderPriceWrong();
     /// @notice The marketplace contract is not approve for the given token id.
     error MarketplaceNotApproved();
     /// @notice The order value could not be sent to the seller.
@@ -87,9 +85,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /// @notice The NFT contract is not on the whitelist
     error NotWhitelisted();
     /// @notice the NFT contract is already on the whitelist;
-    error AlreadyWhitelisted();
-    /// @notice The contract fee could not be transfered to the contract;
-    error CouldNotPayFee();
+    error StatusAlreadySet();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
@@ -103,10 +99,10 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         uint256 tokenId;
         /// @dev The contract address of the NFT.
         address nftContract;
-        /// @dev The Unix timestamp (seconds) when the order expires. 0 means no expiration.
-        uint64 expiration;
         /// @dev The address of the seller.
         address seller;
+        /// @dev The Unix timestamp (seconds) when the order expires. 0 means no expiration.
+        uint64 expiration;
         /// @dev The seller's nonce for this order, used to prevent replay attacks.
         uint64 nonce;
     }
@@ -126,7 +122,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /// @notice type hash of the order struct for the _hashOrder function
     bytes32 public constant ORDER_TYPEHASH =
         keccak256(
-            "Order(uint256 price,uint256 tokenId,address nftContract,uint64 expiration,address seller,uint64 nonce)"
+            "Order(uint256 price,uint256 tokenId,address nftContract,address seller,uint64 expiration, uint64 nonce)"
         );
 
     /// @notice Mapping from an order hash to the corresponding Order struct.
@@ -137,9 +133,6 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
 
     /// @notice Mapping for contract whitelist.
     mapping(address contractAddress => bool allowed) public whitelist;
-
-    /// @notice storage for fees generated from sales.
-    uint256 public pendingFees;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         CONSTRUCTOR                        */
@@ -171,8 +164,8 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
                 order.price,
                 order.tokenId,
                 order.nftContract,
-                order.expiration,
                 order.seller,
+                order.expiration,
                 order.nonce
             )
         );
@@ -211,7 +204,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         }
         if (signer != order.seller) revert SignerMustBeSeller();
         if (signer == address(0)) revert ZeroAddress();
-        if (order.price <= 10000000000000 wei) revert OrderPriceTooLow();
+        if (order.price < 10000000000000 wei) revert OrderPriceTooLow();
         if (orders[orderDigest].seller != address(0)) revert AlreadyListed();
         if (order.nonce != currentNonce) revert NonceIncorrect();
         if (!order.nftContract.supportsInterface(type(IERC721).interfaceId)) {
@@ -240,7 +233,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         IERC721 token = IERC721(order.nftContract);
 
         if (order.seller == address(0)) revert OrderNotFound();
-        if (msg.value != order.price) revert TxValueTooLow();
+        if (msg.value != order.price) revert OrderPriceWrong();
 
         if (order.expiration != 0 && order.expiration <= block.timestamp) {
             delete orders[orderHash];
@@ -264,8 +257,6 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         token.transferFrom(order.seller, msg.sender, order.tokenId);
 
         uint256 fee = (order.price * FEE_BPS) / 10_000;
-
-        pendingFees += fee;
 
         (bool orderPayment, ) = order.seller.call{value: order.price - fee}("");
         if (!orderPayment) revert CouldNotPaySeller();
@@ -362,13 +353,13 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      * @notice Sets the whitelist status for a single NFT contract, controlled by the owner.
      * @dev Allows the contract owner to add or remove an NFT contract from the whitelist.
      *      Setting `allowed` to `true` adds the contract, and `false` removes it.
-     *      This function is idempotent, meaning calling it multiple times with the
-     *      same parameters will result in the same state.
      * @param nftContract The address of the NFT contract to update.
      * @param allowed The desired whitelist status (`true` to add/allow, `false` to remove/disallow).
      */
     function _setWhitelistStatus(address nftContract, bool allowed) private {
         if (nftContract == address(0)) revert ZeroAddress();
+
+        if (whitelist[nftContract] == allowed) revert StatusAlreadySet();
 
         whitelist[nftContract] = allowed;
 
@@ -383,21 +374,13 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      * @notice Allows the owner the withdraw pending fees
      */
     function withdrawFees() external onlyOwner {
-        uint256 amount = pendingFees;
-        if (amount == 0) revert NoPendingFees();
-
-        pendingFees = 0;
-
-        (bool ok, ) = owner().call{value: amount}("");
+        (bool ok, ) = owner().call{value: address(this).balance}("");
 
         if (!ok) revert FeeWithdrawlFailed();
     }
 
     /**
-     * @notice Adds any eth sent to the contract to pendingFees
      * @dev This can be used for donations or other direct payments to the contract.
      */
-    receive() external payable {
-        pendingFees += msg.value;
-    }
+    receive() external payable {}
 }
