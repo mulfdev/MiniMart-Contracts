@@ -122,7 +122,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /// @notice The fee percentage in basis points (e.g., 300 = 3%).
     uint16 public constant FEE_BPS = 300;
 
-    /// @notice type hash of the order struct for the _hashOrder function
+    /// @notice type hash of the order struct for the hashOrder function
     bytes32 public constant ORDER_TYPEHASH =
         keccak256(
             "Order(uint256 price,uint256 tokenId,address nftContract,address seller,uint64 expiration, uint64 nonce)"
@@ -149,7 +149,9 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         address initialOwner,
         string memory name,
         string memory version
-    ) Ownable(initialOwner) EIP712(name, version) {}
+    ) Ownable(initialOwner) EIP712(name, version) {
+        if (initialOwner == address(0)) revert ZeroAddress();
+    }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                    EXTERNAL FUNCTIONS                      */
@@ -161,7 +163,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      * @param order The order to hash.
      * @return The EIP-712 typed data hash.
      */
-    function _hashOrder(Order calldata order) public view returns (bytes32) {
+    function hashOrder(Order calldata order) public view returns (bytes32) {
         bytes32 structHash = keccak256(
             abi.encode(
                 ORDER_TYPEHASH,
@@ -196,7 +198,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         bytes calldata signature
     ) external nonReentrant returns (bytes32 orderDigest) {
         IERC721 token = IERC721(order.nftContract);
-        orderDigest = _hashOrder(order);
+        orderDigest = hashOrder(order);
 
         address signer = ECDSA.recover(orderDigest, signature);
         uint64 currentNonce = nonces[signer];
