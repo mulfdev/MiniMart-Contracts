@@ -305,7 +305,80 @@ contract MiniMartTest is Test {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Unit tests ‑ fulfillment (negative paths)
+    // Unit tests ‑ fulfillment (negative paths that now REFUND instead of revert)
+    // ──────────────────────────────────────────────────────────────────────────
+    function testFulfillRefunds_OrderExpired() public {
+        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
+            _createOrder(1 ether, uint64(block.timestamp + 1), 0);
+
+        miniMart.addOrder(order, sig);
+
+        // order will be expired
+        vm.warp(block.timestamp + 3);
+
+        uint256 buyerBefore = buyer.balance;
+        uint256 contractBefore = address(miniMart).balance;
+
+        vm.expectEmit(true, true, true, true);
+        emit MiniMart.OrderRemoved(digest);
+
+        vm.prank(buyer);
+        miniMart.fulfillOrder{ value: order.price }(digest);
+
+        // order removed
+        assertEq(miniMart.getOrder(digest).seller, address(0), "order not removed");
+
+        // buyer refunded (tolerate gas)
+        assertApproxEqAbs(buyer.balance, buyerBefore, 1e14);
+
+        // contract balance unchanged
+        assertEq(address(miniMart).balance, contractBefore, "contract should not keep funds");
+    }
+
+    function testFulfillRefunds_NotTokenOwner() public {
+        bytes32 digest = _listSimpleOrder();
+
+        // seller no longer owns token
+        vm.prank(seller);
+        nft.transferFrom(seller, owner, TOKEN_ID);
+
+        uint256 buyerBefore = buyer.balance;
+        uint256 contractBefore = address(miniMart).balance;
+
+        vm.expectEmit(true, true, true, true);
+        emit MiniMart.OrderRemoved(digest);
+
+        vm.prank(buyer);
+        miniMart.fulfillOrder{ value: 1 ether }(digest);
+
+        assertEq(miniMart.getOrder(digest).seller, address(0), "order not removed");
+        assertApproxEqAbs(buyer.balance, buyerBefore, 1e14);
+        assertEq(address(miniMart).balance, contractBefore);
+    }
+
+    function testFulfillRefunds_MarketplaceNotApproved() public {
+        bytes32 digest = _listSimpleOrder();
+
+        // revoke approval
+        vm.prank(seller);
+        nft.approve(address(0), TOKEN_ID);
+
+        uint256 buyerBefore = buyer.balance;
+        uint256 contractBefore = address(miniMart).balance;
+
+        vm.expectEmit(true, true, true, true);
+        emit MiniMart.OrderRemoved(digest);
+
+        vm.prank(buyer);
+        miniMart.fulfillOrder{ value: 1 ether }(digest);
+
+        assertEq(miniMart.getOrder(digest).seller, address(0), "order not removed");
+        assertApproxEqAbs(buyer.balance, buyerBefore, 1e14);
+        assertEq(address(miniMart).balance, contractBefore);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Unit tests ‑ fulfillment (negative paths that still revert)
     // ──────────────────────────────────────────────────────────────────────────
     function testFulfillOrderFailsWrongPrice() public {
         (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
@@ -321,42 +394,6 @@ contract MiniMartTest is Test {
     function testFulfillFails_OrderNotFound() public {
         vm.expectRevert(MiniMart.OrderNotFound.selector);
         miniMart.fulfillOrder{ value: 1 ether }(bytes32(uint256(123)));
-    }
-
-    function testFulfillFails_OrderExpired() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, uint64(block.timestamp + 1), 0);
-
-        miniMart.addOrder(order, sig);
-
-        vm.warp(block.timestamp + 3);
-
-        vm.expectRevert(MiniMart.OrderExpired.selector);
-        vm.prank(buyer);
-        miniMart.fulfillOrder{ value: order.price }(digest);
-    }
-
-    function testFulfillFails_NotTokenOwner() public {
-        bytes32 digest = _listSimpleOrder();
-
-        // seller no longer owns token
-        vm.prank(seller);
-        nft.transferFrom(seller, owner, TOKEN_ID);
-
-        vm.expectRevert(MiniMart.NotTokenOwner.selector);
-        vm.prank(buyer);
-        miniMart.fulfillOrder{ value: 1 ether }(digest);
-    }
-
-    function testFulfillFails_MarketplaceNotApproved() public {
-        bytes32 digest = _listSimpleOrder();
-
-        vm.prank(seller);
-        nft.approve(address(0), TOKEN_ID);
-
-        vm.expectRevert(MiniMart.MarketplaceNotApproved.selector);
-        vm.prank(buyer);
-        miniMart.fulfillOrder{ value: 1 ether }(digest);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
