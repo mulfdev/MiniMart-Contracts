@@ -15,8 +15,25 @@ import "forge-std/Test.sol";
 import "../src/MiniMart.sol";
 import "../src/TestNFT.sol";
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Helper mocks
+ * ────────────────────────────────────────────────────────────────────────────*/
+/// @dev Contract that does NOT implement ERC165 – used to trigger NonERC721Interface
+contract NonERC165 {}
+
+/// @dev Owner that reverts on receiving ETH – used to trigger FeeWithdrawlFailed
+contract RevertingOwner {
+    function callWithdraw(MiniMart mart) external {
+        mart.withdrawFees();
+    }
+
+    receive() external payable {
+        revert();
+    }
+}
+
 // keep the declaration so the file compiles even though the selector
-// is no longer referenced explicitly.
+// is no longer referenced explicitly elsewhere.
 error OwnableUnauthorizedAccount(address);
 
 contract MiniMartTest is Test {
@@ -108,8 +125,18 @@ contract MiniMartTest is Test {
         signature = abi.encodePacked(r, s, v);
     }
 
+    /**
+     * Lists a minimal valid order priced at 1 ether and returns its hash.
+     */
+    function _listSimpleOrder() internal returns (bytes32 digest) {
+        (MiniMart.Order memory order, bytes memory sig, bytes32 h) =
+            _createOrder(1 ether, 0, miniMart.nonces(seller));
+        digest = h;
+        miniMart.addOrder(order, sig);
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
-    // Unit tests ‑ listing
+    // Unit tests ‑ listing (success paths)
     // ──────────────────────────────────────────────────────────────────────────
     function testAddOrderSuccess() public {
         (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
@@ -125,6 +152,9 @@ contract MiniMartTest is Test {
         assertEq(miniMart.nonces(seller), 1, "Nonce should increment");
     }
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // Unit tests ‑ listing (negative paths)
+    // ──────────────────────────────────────────────────────────────────────────
     function testAddOrderFailsIfNotWhitelisted() public {
         // build order for `otherNft` which is NOT whitelisted
         MiniMart.Order memory badOrder = MiniMart.Order({
@@ -153,8 +183,93 @@ contract MiniMartTest is Test {
         miniMart.addOrder(order, sig);
     }
 
+    function testAddOrderFails_SignerMustBeSeller() public {
+        (MiniMart.Order memory order,,) = _createOrder(1 ether, 0, 0);
+        order.seller = buyer; // mismatch
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest); // signed by original sellerPk
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        vm.expectRevert(MiniMart.SignerMustBeSeller.selector);
+        miniMart.addOrder(order, sig);
+    }
+
+    function testAddOrderFails_OrderExpired() public {
+        (MiniMart.Order memory order, bytes memory sig, ) =
+            _createOrder(1 ether, uint64(block.timestamp - 1), 0);
+
+        vm.expectRevert(MiniMart.OrderExpired.selector);
+        miniMart.addOrder(order, sig);
+    }
+
+    function testAddOrderFails_PriceTooLow() public {
+        (MiniMart.Order memory order, bytes memory sig, ) =
+            _createOrder(1 wei, 0, 0); // below 10,000,000,000,000 wei
+
+        vm.expectRevert(MiniMart.OrderPriceTooLow.selector);
+        miniMart.addOrder(order, sig);
+    }
+
+    function testAddOrderFails_NonERC721Interface() public {
+        NonERC165 bogus = new NonERC165();
+
+        MiniMart.Order memory order = MiniMart.Order({
+            price:      1 ether,
+            tokenId:    TOKEN_ID,
+            nftContract:address(bogus),
+            seller:     seller,
+            expiration: 0,
+            nonce:      0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+
+        vm.expectRevert(MiniMart.NonERC721Interface.selector);
+        miniMart.addOrder(order, abi.encodePacked(r, s, v));
+    }
+
+    function testAddOrderFails_MarketplaceNotApproved() public {
+        // revoke approval
+        vm.prank(seller);
+        nft.approve(address(0), TOKEN_ID);
+
+        (MiniMart.Order memory order, bytes memory sig, ) =
+            _createOrder(1 ether, 0, 0);
+
+        vm.expectRevert(MiniMart.MarketplaceNotApproved.selector);
+        miniMart.addOrder(order, sig);
+    }
+
+    function testAddOrderFails_AlreadyListed() public {
+        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
+            _createOrder(1 ether, 0, 0);
+        miniMart.addOrder(order, sig);
+
+        vm.expectRevert(MiniMart.AlreadyListed.selector);
+        miniMart.addOrder(order, sig);
+
+        MiniMart.Order memory stored = miniMart.getOrder(digest);
+        assertEq(stored.seller, seller);
+    }
+
+    function testAddOrderFails_NotTokenOwner() public {
+        // transfer token away from seller (keep approval)
+        vm.prank(seller);
+        nft.transferFrom(seller, buyer, TOKEN_ID);
+        vm.prank(buyer);
+        nft.approve(address(miniMart), TOKEN_ID);
+
+        (MiniMart.Order memory order, bytes memory sig, ) =
+            _createOrder(1 ether, 0, 0);
+
+        vm.expectRevert(MiniMart.NotTokenOwner.selector);
+        miniMart.addOrder(order, sig);
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
-    // Unit tests ‑ fulfillment
+    // Unit tests ‑ fulfillment (success path)
     // ──────────────────────────────────────────────────────────────────────────
     function testFulfillOrderSuccess() public {
         (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
@@ -202,6 +317,9 @@ contract MiniMartTest is Test {
         );
     }
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // Unit tests ‑ fulfillment (negative paths)
+    // ──────────────────────────────────────────────────────────────────────────
     function testFulfillOrderFailsWrongPrice() public {
         (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
             _createOrder(1 ether, 0, 0);
@@ -211,6 +329,50 @@ contract MiniMartTest is Test {
         vm.expectRevert(MiniMart.OrderPriceWrong.selector);
         vm.prank(buyer);
         miniMart.fulfillOrder{value: order.price - 1 wei}(digest);
+    }
+
+    function testFulfillFails_OrderNotFound() public {
+        vm.expectRevert(MiniMart.OrderNotFound.selector);
+        miniMart.fulfillOrder{value: 1 ether}(bytes32(uint256(123)));
+    }
+
+    function testFulfillFails_OrderExpired() public {
+        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
+            _createOrder(1 ether, uint64(block.timestamp + 1), 0);
+
+        miniMart.addOrder(order, sig);
+
+        vm.warp(block.timestamp + 2);
+
+        vm.expectRevert(MiniMart.OrderExpired.selector);
+        vm.prank(buyer);
+        miniMart.fulfillOrder{value: order.price}(digest);
+
+        MiniMart.Order memory gone = miniMart.getOrder(digest);
+        assertEq(gone.seller, address(0), "order should be removed");
+    }
+
+    function testFulfillFails_NotTokenOwner() public {
+        bytes32 digest = _listSimpleOrder();
+
+        // seller no longer owns token
+        vm.prank(seller);
+        nft.transferFrom(seller, owner, TOKEN_ID);
+
+        vm.expectRevert(MiniMart.NotTokenOwner.selector);
+        vm.prank(buyer);
+        miniMart.fulfillOrder{value: 1 ether}(digest);
+    }
+
+    function testFulfillFails_MarketplaceNotApproved() public {
+        bytes32 digest = _listSimpleOrder();
+
+        vm.prank(seller);
+        nft.approve(address(0), TOKEN_ID);
+
+        vm.expectRevert(MiniMart.MarketplaceNotApproved.selector);
+        vm.prank(buyer);
+        miniMart.fulfillOrder{value: 1 ether}(digest);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -240,6 +402,11 @@ contract MiniMartTest is Test {
         miniMart.removeOrder(digest);
     }
 
+    function testRemoveOrderFails_OrderNotFound() public {
+        vm.expectRevert(MiniMart.OrderNotFound.selector);
+        miniMart.removeOrder(bytes32(uint256(42)));
+    }
+
     function testBatchRemoveOrders() public {
         bytes32[] memory hashes = new bytes32[](3);
 
@@ -259,6 +426,12 @@ contract MiniMartTest is Test {
         }
     }
 
+    function testBatchRemoveFails_InvalidBatchSize() public {
+        bytes32[] memory empty;
+        vm.expectRevert(MiniMart.InvalidBatchSize.selector);
+        miniMart.batchRemoveOrder(empty);
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Unit tests ‑ admin / whitelist
     // ──────────────────────────────────────────────────────────────────────────
@@ -275,13 +448,24 @@ contract MiniMartTest is Test {
         assertTrue(!miniMart.whitelist(address(otherNft)));
     }
 
+    function testWhitelistStatusAlreadySet() public {
+        vm.prank(owner);
+        miniMart.setWhitelistStatus(address(nft), true); // already true
+
+        vm.prank(owner);
+        vm.expectRevert(MiniMart.StatusAlreadySet.selector);
+        miniMart.setWhitelistStatus(address(nft), true);
+    }
+
     function testSetWhitelistFailsIfNotOwner() public {
-        // we only care that the call reverts; exact error can vary
-        vm.expectRevert();
+        vm.expectRevert(OwnableUnauthorizedAccount.selector);
         vm.prank(seller);
         miniMart.setWhitelistStatus(address(otherNft), true);
     }
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // withdrawFees
+    // ──────────────────────────────────────────────────────────────────────────
     function testWithdrawFees() public {
         // create an order & fulfill to generate fees
         (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
@@ -300,6 +484,44 @@ contract MiniMartTest is Test {
 
         assertEq(address(miniMart).balance, 0, "fees not withdrawn");
         assertEq(owner.balance, ownerBefore + contractBal, "owner not paid");
+    }
+
+    function testWithdrawFeesFails_FeeWithdraw() public {
+        // deploy new mart with an owner that rejects ETH
+        RevertingOwner badOwner = new RevertingOwner();
+        MiniMart badMart = new MiniMart(address(badOwner), "Mini", "1");
+
+        // deploy nft & whitelist it
+        TestNFT localNft = new TestNFT("uri", seller);
+        vm.prank(address(badOwner));
+        badMart.setWhitelistStatus(address(localNft), true);
+
+        // mint & approve
+        vm.prank(seller);
+        localNft.mint(seller);
+        vm.prank(seller);
+        localNft.approve(address(badMart), 0);
+
+        // list order
+        MiniMart.Order memory order = MiniMart.Order({
+            price:      1 ether,
+            tokenId:    0,
+            nftContract:address(localNft),
+            seller:     seller,
+            expiration: 0,
+            nonce:      0
+        });
+        bytes32 digest = badMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        vm.prank(buyer);
+        badMart.addOrder(order, abi.encodePacked(r, s, v));
+
+        // fulfill to accrue fees
+        vm.prank(buyer);
+        badMart.fulfillOrder{value: 1 ether}(digest);
+
+        vm.expectRevert(MiniMart.FeeWithdrawlFailed.selector);
+        badOwner.callWithdraw(badMart);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
