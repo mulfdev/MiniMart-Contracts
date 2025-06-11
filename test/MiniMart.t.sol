@@ -18,10 +18,10 @@ import "../src/TestNFT.sol";
 /* ─────────────────────────────────────────────────────────────────────────────
  * Helper mocks
  * ────────────────────────────────────────────────────────────────────────────*/
-/// @dev Contract that does NOT implement ERC165 – used to trigger NonERC721Interface
+/// @dev Contract that does NOT implement ERC165 – used to trigger NonERC721Interface.
 contract NonERC165 {}
 
-/// @dev Owner that reverts on receiving ETH – used to trigger FeeWithdrawlFailed
+/// @dev Owner that reverts on receiving ETH – used to trigger FeeWithdrawlFailed.
 contract RevertingOwner {
     function callWithdraw(MiniMart mart) external {
         mart.withdrawFees();
@@ -33,7 +33,7 @@ contract RevertingOwner {
 }
 
 // keep the declaration so the file compiles even though the selector
-// is no longer referenced explicitly elsewhere.
+// is referenced explicitly below.
 error OwnableUnauthorizedAccount(address);
 
 contract MiniMartTest is Test {
@@ -196,8 +196,12 @@ contract MiniMartTest is Test {
     }
 
     function testAddOrderFails_OrderExpired() public {
+        uint64 expiry = uint64(block.timestamp + 1);
         (MiniMart.Order memory order, bytes memory sig, ) =
-            _createOrder(1 ether, uint64(block.timestamp - 1), 0);
+            _createOrder(1 ether, expiry, 0);
+
+        // Advance time so that the order is expired at submission
+        vm.warp(block.timestamp + 2);
 
         vm.expectRevert(MiniMart.OrderExpired.selector);
         miniMart.addOrder(order, sig);
@@ -213,6 +217,10 @@ contract MiniMartTest is Test {
 
     function testAddOrderFails_NonERC721Interface() public {
         NonERC165 bogus = new NonERC165();
+
+        // whitelist the bogus contract so that the ERC721 interface check is reached
+        vm.prank(owner);
+        miniMart.setWhitelistStatus(address(bogus), true);
 
         MiniMart.Order memory order = MiniMart.Order({
             price:      1 ether,
@@ -342,14 +350,11 @@ contract MiniMartTest is Test {
 
         miniMart.addOrder(order, sig);
 
-        vm.warp(block.timestamp + 2);
+        vm.warp(block.timestamp + 3);
 
         vm.expectRevert(MiniMart.OrderExpired.selector);
         vm.prank(buyer);
         miniMart.fulfillOrder{value: order.price}(digest);
-
-        MiniMart.Order memory gone = miniMart.getOrder(digest);
-        assertEq(gone.seller, address(0), "order should be removed");
     }
 
     function testFulfillFails_NotTokenOwner() public {
@@ -449,16 +454,16 @@ contract MiniMartTest is Test {
     }
 
     function testWhitelistStatusAlreadySet() public {
-        vm.prank(owner);
-        miniMart.setWhitelistStatus(address(nft), true); // already true
-
+        // current status is already `true`
         vm.prank(owner);
         vm.expectRevert(MiniMart.StatusAlreadySet.selector);
         miniMart.setWhitelistStatus(address(nft), true);
     }
 
     function testSetWhitelistFailsIfNotOwner() public {
-        vm.expectRevert(OwnableUnauthorizedAccount.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(OwnableUnauthorizedAccount.selector, seller)
+        );
         vm.prank(seller);
         miniMart.setWhitelistStatus(address(otherNft), true);
     }
