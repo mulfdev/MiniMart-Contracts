@@ -107,8 +107,11 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         uint64 nonce;
     }
 
+    /// @notice A struct containing whitelist information for NFT contracts.
     struct WhitelistInfo {
+        /// @dev The address of the NFT contract.
         address nftContract;
+        /// @dev Whether the contract is allowed on the whitelist.
         bool allowed;
     }
 
@@ -153,7 +156,8 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /**
-     * @dev Hashes an order struct according to the EIP-712 standard.
+     * @notice Hashes an order struct according to the EIP-712 standard.
+     * @dev Computes the EIP-712 typed data hash for the given order.
      * @param order The order to hash.
      * @return The EIP-712 typed data hash.
      */
@@ -174,6 +178,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     }
 
     /// @notice Returns the EIP-712 domain separator used by the contract.
+    /// @return The domain separator hash.
     function domainSeparator() external view returns (bytes32) {
         return _domainSeparatorV4();
     }
@@ -228,6 +233,12 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         });
     }
 
+    /**
+     * @notice Fulfills an existing order by purchasing the NFT.
+     * @dev Validates the order, handles payment, transfers the NFT, and distributes fees.
+     *      The order is deleted after successful fulfillment.
+     * @param orderHash The hash of the order to fulfill.
+     */
     function fulfillOrder(bytes32 orderHash) public payable nonReentrant {
         Order memory order = getOrder(orderHash);
         IERC721 token = IERC721(order.nftContract);
@@ -275,7 +286,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
 
     /**
      * @notice Removes a listed NFT sell order.
-     * @dev Reverts if the order doesn’t exist or the caller is not its creator.
+     * @dev Reverts if the order doesn't exist or the caller is not its creator.
      * @param orderHash The EIP‑712 hash of the order to remove.
      */
     function removeOrder(bytes32 orderHash) external nonReentrant {
@@ -303,6 +314,12 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         }
     }
 
+    /**
+     * @notice Sets the whitelist status for a single NFT contract.
+     * @dev Only the contract owner can call this function.
+     * @param nftContract The address of the NFT contract to update.
+     * @param allowed The desired whitelist status (true to allow, false to disallow).
+     */
     function setWhitelistStatus(
         address nftContract,
         bool allowed
@@ -310,6 +327,12 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         _setWhitelistStatus(nftContract, allowed);
     }
 
+    /**
+     * @notice Sets the whitelist status for multiple NFT contracts in a single transaction.
+     * @dev Only the contract owner can call this function. Batch size is limited to prevent
+     *      excessive gas usage.
+     * @param whitelistInfo An array of WhitelistInfo structs containing contract addresses and their desired status.
+     */
     function batchSetWhitelistStatus(
         WhitelistInfo[] calldata whitelistInfo
     ) external onlyOwner {
@@ -371,7 +394,8 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /**
-     * @notice Allows the owner the withdraw pending fees
+     * @notice Allows the owner to withdraw accumulated fees from the contract.
+     * @dev Transfers the entire contract balance to the owner. Reverts if the transfer fails.
      */
     function withdrawFees() external onlyOwner {
         (bool ok, ) = owner().call{value: address(this).balance}("");
@@ -380,6 +404,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     }
 
     /**
+     * @notice Allows the contract to receive ETH directly.
      * @dev This can be used for donations or other direct payments to the contract.
      */
     receive() external payable {}
