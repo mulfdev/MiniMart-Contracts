@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Script, console} from "forge-std/Script.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {console} from "forge-std/console.sol";
-import {MiniMart} from "../src/MiniMart.sol";
-import {TestNFT} from "../src/TestNFT.sol";
+import { Script, console } from "forge-std/Script.sol";
+import { EIP712 } from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import { console } from "forge-std/console.sol";
+import { MiniMart } from "../src/MiniMart.sol";
+import { TestNFT } from "../src/TestNFT.sol";
 
 contract DeployLocal is Script, EIP712 {
-    constructor() EIP712("MiniMart", "1") {}
+    constructor() EIP712("MiniMart", "1") { }
 
     MiniMart public marketplace;
 
-    function setUp() public {}
+    function setUp() public { }
 
     function run() public {
         vm.createSelectFork("local");
@@ -25,18 +25,15 @@ contract DeployLocal is Script, EIP712 {
         // anvil provided wallet
         address wallet = address(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
 
-        (bool success, ) = wallet.call{value: 0.3 ether}("");
+        (bool success,) = wallet.call{ value: 0.3 ether }("");
         require(success, "Failed to send Ether");
 
-        TestNFT nft = new TestNFT(
-            "https://media.mulf.wtf/testnft-img.png",
-            wallet
-        );
+        TestNFT nft = new TestNFT("https://media.mulf.wtf/testnft-img.png", wallet);
         marketplace = new MiniMart(payable(wallet), "MiniMart", "1");
 
         marketplace.setWhitelistStatus(address(nft), true);
 
-        for (uint i = 0; i <= 25; i++) {
+        for (uint256 i = 0; i <= 25; i++) {
             nft.mint(wallet);
 
             // Approve the marketplace to transfer this specific token
@@ -72,9 +69,7 @@ contract DeployLocal is Script, EIP712 {
 
             // Manually construct the final digest, replicating what _hashTypedDataV4 does.
             // Formula: keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash))
-            bytes32 digest = keccak256(
-                abi.encodePacked("\x19\x01", domainSeparator, structHash)
-            );
+            bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
             bytes memory signature = abi.encodePacked(r, s, v);
 
@@ -87,9 +82,7 @@ contract DeployLocal is Script, EIP712 {
 
             console.log("Gas used:", gasBefore - gasAfter);
 
-            MiniMart.Order memory fetchedOrder = marketplace.getOrder(
-                newOrderId
-            );
+            MiniMart.Order memory fetchedOrder = marketplace.getOrder(newOrderId);
 
             console.log("\n--- Fetched Order Details ---");
             console.log("Price:", fetchedOrder.price);
