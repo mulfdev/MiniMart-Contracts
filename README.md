@@ -37,6 +37,8 @@ mini-mart
 ### Prerequisites
 
 *   [Foundry](https://book.getfoundry.sh/getting-started/installation): You will need `forge` and `anvil` installed.
+*   [Slither](https://github.com/crytic/slither): For static analysis.
+*   [Mythril](https://github.com/Consensys/mythril): For symbolic execution analysis.
 
 ### Installation & Setup
 
@@ -80,7 +82,7 @@ The `Makefile` provides a convenient interface for common development tasks.
     ```bash
     make test
     # For more verbose output
-    make test ARGS="-vv"
+    make test ARGS="-vvv"
     ```
 
 *   **Lint Contracts:**
@@ -91,6 +93,22 @@ The `Makefile` provides a convenient interface for common development tasks.
 *   **Clean Artifacts:**
     ```bash
     make clean
+    ```
+
+### Security Analysis
+
+The project includes Makefile commands for running popular security analysis tools.
+
+*   **Slither (Static Analysis):**
+    Run Slither for automated vulnerability detection and code analysis on the `src` contracts.
+    ```bash
+    make slither
+    ```
+
+*   **Mythril (Symbolic Execution):**
+    Perform symbolic execution analysis on the `MiniMart` contract's deployed bytecode to find security vulnerabilities.
+    ```bash
+    make analyze
     ```
 
 ### Deployment
