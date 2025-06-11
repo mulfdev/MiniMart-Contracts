@@ -20,14 +20,14 @@ error OwnableUnauthorizedAccount(address);
 
 contract MiniMartTest is Test {
     MiniMart internal miniMart;
-    TestNFT  internal nft;
-    TestNFT  internal otherNft;
+    TestNFT internal nft;
+    TestNFT internal otherNft;
 
     // ──────────────────────────────────────────────────────────────────────────
     // Test actors (private keys are deterministic so we can sign orders)
     // ──────────────────────────────────────────────────────────────────────────
     uint256 internal constant sellerPk = uint256(0xB0B);
-    uint256 internal constant buyerPk  = uint256(0xCAFE);
+    uint256 internal constant buyerPk = uint256(0xCAFE);
 
     address internal owner;
     address internal seller;
@@ -41,26 +41,26 @@ contract MiniMartTest is Test {
     // ──────────────────────────────────────────────────────────────────────────
     function setUp() public {
         // derive addresses from private keys so signatures recover correctly
-        owner  = vm.addr(uint256(1));
+        owner = vm.addr(uint256(1));
         seller = vm.addr(sellerPk);
-        buyer  = vm.addr(buyerPk);
+        buyer = vm.addr(buyerPk);
 
         // label addresses for nicer traces
-        vm.label(owner,  "Owner");
+        vm.label(owner, "Owner");
         vm.label(seller, "Seller");
-        vm.label(buyer,  "Buyer");
+        vm.label(buyer, "Buyer");
 
         // provide funds
-        vm.deal(owner,  100 ether);
+        vm.deal(owner, 100 ether);
         vm.deal(seller, 100 ether);
-        vm.deal(buyer,  100 ether);
+        vm.deal(buyer, 100 ether);
 
         // deploy MiniMart
         vm.prank(owner);
         miniMart = new MiniMart(owner, "MiniMart", "1");
 
         // deploy NFTs
-        nft      = new TestNFT("ipfs://base", seller);
+        nft = new TestNFT("ipfs://base", seller);
         otherNft = new TestNFT("ipfs://other", seller);
 
         // mint one token for seller (tokenId = 0)
@@ -86,19 +86,24 @@ contract MiniMartTest is Test {
      */
     function _createOrder(
         uint256 price,
-        uint64  expiration,
-        uint64  nonce
+        uint64 expiration,
+        uint64 nonce
     )
         internal
-        returns (MiniMart.Order memory order, bytes memory signature, bytes32 digest)
+        view
+        returns (
+            MiniMart.Order memory order,
+            bytes memory signature,
+            bytes32 digest
+        )
     {
         order = MiniMart.Order({
-            price:      price,
-            tokenId:    TOKEN_ID,
-            nftContract:address(nft),
-            seller:     seller,
+            price: price,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
             expiration: expiration,
-            nonce:      nonce
+            nonce: nonce
         });
 
         digest = miniMart.hashOrder(order);
@@ -110,8 +115,11 @@ contract MiniMartTest is Test {
     // Unit tests ‑ listing
     // ──────────────────────────────────────────────────────────────────────────
     function testAddOrderSuccess() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, 0, 0);
+        (
+            MiniMart.Order memory order,
+            bytes memory sig,
+            bytes32 digest
+        ) = _createOrder(1 ether, 0, 0);
 
         // anyone can submit the listing tx, does not have to be the seller
         vm.prank(buyer);
@@ -126,12 +134,12 @@ contract MiniMartTest is Test {
     function testAddOrderFailsIfNotWhitelisted() public {
         // build order for `otherNft` which is NOT whitelisted
         MiniMart.Order memory badOrder = MiniMart.Order({
-            price:      1 ether,
-            tokenId:    TOKEN_ID,
-            nftContract:address(otherNft),
-            seller:     seller,
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(otherNft),
+            seller: seller,
             expiration: 0,
-            nonce:      0
+            nonce: 0
         });
 
         bytes32 digest = miniMart.hashOrder(badOrder);
@@ -144,8 +152,11 @@ contract MiniMartTest is Test {
     }
 
     function testAddOrderFailsWithWrongNonce() public {
-        (MiniMart.Order memory order, bytes memory sig, ) =
-            _createOrder(1 ether, 0, 5); // wrong nonce == 5
+        (MiniMart.Order memory order, bytes memory sig, ) = _createOrder(
+            1 ether,
+            0,
+            5
+        ); // wrong nonce == 5
 
         vm.expectRevert(MiniMart.NonceIncorrect.selector);
         miniMart.addOrder(order, sig);
@@ -155,8 +166,11 @@ contract MiniMartTest is Test {
     // Unit tests ‑ fulfillment
     // ──────────────────────────────────────────────────────────────────────────
     function testFulfillOrderSuccess() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(2 ether, 0, 0);
+        (
+            MiniMart.Order memory order,
+            bytes memory sig,
+            bytes32 digest
+        ) = _createOrder(2 ether, 0, 0);
 
         miniMart.addOrder(order, sig);
 
@@ -165,7 +179,7 @@ contract MiniMartTest is Test {
 
         // track balances
         uint256 sellerBefore = seller.balance;
-        uint256 ownerBefore  = owner.balance;
+        uint256 ownerBefore = owner.balance;
 
         uint256 fee = (order.price * miniMart.FEE_BPS()) / 10_000;
 
@@ -181,13 +195,20 @@ contract MiniMartTest is Test {
         assertEq(empty.seller, address(0), "order not deleted");
 
         // balances updated
-        assertEq(seller.balance, sellerBefore + order.price - fee, "seller paid");
-        assertEq(owner.balance,  ownerBefore          + fee,       "fee collected");
+        assertEq(
+            seller.balance,
+            sellerBefore + order.price - fee,
+            "seller paid"
+        );
+        assertEq(owner.balance, ownerBefore + fee, "fee collected");
     }
 
     function testFulfillOrderFailsWrongPrice() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, 0, 0);
+        (
+            MiniMart.Order memory order,
+            bytes memory sig,
+            bytes32 digest
+        ) = _createOrder(1 ether, 0, 0);
 
         miniMart.addOrder(order, sig);
 
@@ -200,8 +221,11 @@ contract MiniMartTest is Test {
     // Unit tests ‑ removing orders
     // ──────────────────────────────────────────────────────────────────────────
     function testRemoveOrderBySeller() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, 0, 0);
+        (
+            MiniMart.Order memory order,
+            bytes memory sig,
+            bytes32 digest
+        ) = _createOrder(1 ether, 0, 0);
 
         miniMart.addOrder(order, sig);
 
@@ -213,8 +237,11 @@ contract MiniMartTest is Test {
     }
 
     function testRemoveOrderFailsIfNotSeller() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, 0, 0);
+        (
+            MiniMart.Order memory order,
+            bytes memory sig,
+            bytes32 digest
+        ) = _createOrder(1 ether, 0, 0);
 
         miniMart.addOrder(order, sig);
 
@@ -227,8 +254,11 @@ contract MiniMartTest is Test {
         bytes32[] memory hashes = new bytes32[](3);
 
         for (uint8 i; i < 3; ++i) {
-            (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-                _createOrder(0.5 ether + i, 0, i); // price different, nonce incrementing
+            (
+                MiniMart.Order memory order,
+                bytes memory sig,
+                bytes32 digest
+            ) = _createOrder(0.5 ether + i, 0, i); // price different, nonce incrementing
             hashes[i] = digest;
             miniMart.addOrder(order, sig);
         }
@@ -266,8 +296,11 @@ contract MiniMartTest is Test {
 
     function testWithdrawFees() public {
         // create an order & fulfill to generate fees
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(3 ether, 0, 0);
+        (
+            MiniMart.Order memory order,
+            bytes memory sig,
+            bytes32 digest
+        ) = _createOrder(3 ether, 0, 0);
         miniMart.addOrder(order, sig);
         vm.prank(buyer);
         miniMart.fulfillOrder{value: order.price}(digest);
@@ -289,13 +322,20 @@ contract MiniMartTest is Test {
     // ──────────────────────────────────────────────────────────────────────────
     function testFuzz_NonceMonotonicity(uint96 price, uint64 runs) public {
         price = uint96(bound(uint256(price), 10_000_000_000_000, 1 ether)); // bound ≥ min price
-        runs  = uint64(bound(uint256(runs), 1, 20));
+        runs = uint64(bound(uint256(runs), 1, 20));
 
         for (uint64 i; i < runs; ++i) {
-            (MiniMart.Order memory order, bytes memory sig, ) =
-                _createOrder(price, 0, i);
+            (MiniMart.Order memory order, bytes memory sig, ) = _createOrder(
+                price,
+                0,
+                i
+            );
             miniMart.addOrder(order, sig);
         }
-        assertEq(miniMart.nonces(seller), runs, "nonce did not advance correctly");
+        assertEq(
+            miniMart.nonces(seller),
+            runs,
+            "nonce did not advance correctly"
+        );
     }
 }
