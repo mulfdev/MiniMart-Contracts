@@ -543,6 +543,64 @@ contract MiniMartTest is Test {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
+    // Pause / Unpause
+    // ──────────────────────────────────────────────────────────────────────────
+    function testPauseAndUnpauseByOwner() public {
+        // pause the contract
+        vm.prank(owner);
+        miniMart.pauseContract();
+
+        // verify that state-changing functions guarded by whenNotPaused revert
+        (MiniMart.Order memory order, bytes memory sig,) = _createOrder(1 ether, 0, 0);
+        vm.expectRevert("Pausable: paused");
+        vm.prank(buyer);
+        miniMart.addOrder(order, sig);
+
+        // unpause the contract
+        vm.prank(owner);
+        miniMart.unpause();
+
+        // now addOrder succeeds
+        vm.prank(buyer);
+        miniMart.addOrder(order, sig);
+
+        // ensure order stored
+        bytes32 digest = miniMart.hashOrder(order);
+        assertEq(miniMart.getOrder(digest).seller, seller, "order not stored after unpause");
+    }
+
+    function testPauseAccessControl() public {
+        // non-owner should not be able to pause
+        vm.expectRevert(abi.encodeWithSelector(OwnableUnauthorizedAccount.selector, seller));
+        vm.prank(seller);
+        miniMart.pauseContract();
+
+        // owner pauses
+        vm.prank(owner);
+        miniMart.pauseContract();
+
+        // non-owner cannot unpause
+        vm.expectRevert(abi.encodeWithSelector(OwnableUnauthorizedAccount.selector, seller));
+        vm.prank(seller);
+        miniMart.unpause();
+    }
+
+    function testFulfillOrderFailsWhenPaused() public {
+        // create & list order while unpaused
+        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
+            _createOrder(1 ether, 0, 0);
+        miniMart.addOrder(order, sig);
+
+        // pause
+        vm.prank(owner);
+        miniMart.pauseContract();
+
+        vm.expectRevert("Pausable: paused");
+        vm.prank(buyer);
+        miniMart.fulfillOrder{ value: order.price }(digest);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // Invariant ‑ nonces always strictly increase per seller
     // ──────────────────────────────────────────────────────────────────────────
     function testFuzz_NonceMonotonicity(uint96 price, uint64 runs) public {
