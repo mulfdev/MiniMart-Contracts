@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.30;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import { EIP712 } from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 /**
  * @title MiniMart
  * @author mulf: https://github.com/mulfdev
- * @notice A lightweight, signature-based NFT marketplace.
+ * @notice A lightweight, signature-based ERC721 marketplace.
  */
 contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     using ERC165Checker for address;
@@ -84,8 +84,10 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     error CouldNotPaySeller();
     /// @notice The NFT contract is not on the whitelist
     error NotWhitelisted();
-    /// @notice the NFT contract is already on the whitelist;
+    /// @notice The NFT contract is already on the whitelist;
     error StatusAlreadySet();
+    /// @notice The buyer couldnt be refunded on purchase;
+    error RefundFailed();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
@@ -123,10 +125,9 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     uint16 public constant FEE_BPS = 300;
 
     /// @notice type hash of the order struct for the hashOrder function
-    bytes32 public constant ORDER_TYPEHASH =
-        keccak256(
-            "Order(uint256 price,uint256 tokenId,address nftContract,address seller,uint64 expiration, uint64 nonce)"
-        );
+    bytes32 public constant ORDER_TYPEHASH = keccak256(
+        "Order(uint256 price,uint256 tokenId,address nftContract,address seller,uint64 expiration, uint64 nonce)"
+    );
 
     /// @notice Mapping from an order hash to the corresponding Order struct.
     mapping(bytes32 orderHash => Order) public orders;
@@ -145,11 +146,10 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
     /// @param initialOwner The initial owner of the contract.
     /// @param name The EIP-712 domain name.
     /// @param version The EIP-712 domain version.
-    constructor(
-        address initialOwner,
-        string memory name,
-        string memory version
-    ) Ownable(initialOwner) EIP712(name, version) {
+    constructor(address initialOwner, string memory name, string memory version)
+        Ownable(initialOwner)
+        EIP712(name, version)
+    {
         if (initialOwner == address(0)) revert ZeroAddress();
     }
 
@@ -193,10 +193,11 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      * @param signature The EIP-712 signature of the order hash from the seller.
      * @return orderDigest The unique hash of the newly created order.
      */
-    function addOrder(
-        Order calldata order,
-        bytes calldata signature
-    ) external nonReentrant returns (bytes32 orderDigest) {
+    function addOrder(Order calldata order, bytes calldata signature)
+        external
+        nonReentrant
+        returns (bytes32 orderDigest)
+    {
         IERC721 token = IERC721(order.nftContract);
         orderDigest = hashOrder(order);
 
@@ -251,18 +252,27 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
         if (order.expiration != 0 && order.expiration <= block.timestamp) {
             delete orders[orderHash];
             emit OrderRemoved(orderHash);
-            revert OrderExpired();
+
+            (bool ok,) = msg.sender.call{ value: msg.value }("");
+            if (!ok) revert RefundFailed();
+            return;
         }
 
         if (token.ownerOf(order.tokenId) != order.seller) {
             delete orders[orderHash];
             emit OrderRemoved(orderHash);
-            revert NotTokenOwner();
+
+            (bool ok,) = msg.sender.call{ value: msg.value }("");
+            if (!ok) revert RefundFailed();
+            return;
         }
         if (token.getApproved(order.tokenId) != address(this)) {
             delete orders[orderHash];
             emit OrderRemoved(orderHash);
-            revert MarketplaceNotApproved();
+
+            (bool ok,) = msg.sender.call{ value: msg.value }("");
+            if (!ok) revert RefundFailed();
+            return;
         }
 
         delete orders[orderHash];
@@ -271,7 +281,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
 
         uint256 fee = (order.price * FEE_BPS) / 10_000;
 
-        (bool orderPayment, ) = order.seller.call{value: order.price - fee}("");
+        (bool orderPayment,) = order.seller.call{ value: order.price - fee }("");
         if (!orderPayment) revert CouldNotPaySeller();
 
         emit OrderFulfilled(orderHash, msg.sender);
@@ -302,13 +312,12 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      *      any order in the batch does not exist or was not created by the caller.
      * @param orderHashes An array of order hashes to be removed.
      */
-    function batchRemoveOrder(
-        bytes32[] calldata orderHashes
-    ) external nonReentrant {
-        if (orderHashes.length == 0 || orderHashes.length > 25)
+    function batchRemoveOrder(bytes32[] calldata orderHashes) external nonReentrant {
+        if (orderHashes.length == 0 || orderHashes.length > 25) {
             revert InvalidBatchSize();
+        }
 
-        for (uint8 i = 0; i < orderHashes.length; ) {
+        for (uint8 i = 0; i < orderHashes.length;) {
             _removeOrder(orderHashes[i]);
             unchecked {
                 ++i;
@@ -322,10 +331,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      * @param nftContract The address of the NFT contract to update.
      * @param allowed The desired whitelist status (true to allow, false to disallow).
      */
-    function setWhitelistStatus(
-        address nftContract,
-        bool allowed
-    ) external onlyOwner {
+    function setWhitelistStatus(address nftContract, bool allowed) external onlyOwner {
         _setWhitelistStatus(nftContract, allowed);
     }
 
@@ -335,17 +341,13 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      *      excessive gas usage.
      * @param whitelistInfo An array of WhitelistInfo structs containing contract addresses and their desired status.
      */
-    function batchSetWhitelistStatus(
-        WhitelistInfo[] calldata whitelistInfo
-    ) external onlyOwner {
-        if (whitelistInfo.length == 0 || whitelistInfo.length > 100)
+    function batchSetWhitelistStatus(WhitelistInfo[] calldata whitelistInfo) external onlyOwner {
+        if (whitelistInfo.length == 0 || whitelistInfo.length > 100) {
             revert InvalidBatchSize();
+        }
 
-        for (uint8 i = 0; i < whitelistInfo.length; ) {
-            _setWhitelistStatus(
-                whitelistInfo[i].nftContract,
-                whitelistInfo[i].allowed
-            );
+        for (uint8 i = 0; i < whitelistInfo.length;) {
+            _setWhitelistStatus(whitelistInfo[i].nftContract, whitelistInfo[i].allowed);
             unchecked {
                 ++i;
             }
@@ -371,7 +373,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
 
         delete orders[orderHash];
 
-        emit OrderRemoved({orderId: orderHash});
+        emit OrderRemoved({ orderId: orderHash });
     }
 
     /**
@@ -400,7 +402,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      * @dev Transfers the entire contract balance to the owner. Reverts if the transfer fails.
      */
     function withdrawFees() external onlyOwner {
-        (bool ok, ) = owner().call{value: address(this).balance}("");
+        (bool ok,) = owner().call{ value: address(this).balance }("");
 
         if (!ok) revert FeeWithdrawlFailed();
     }
@@ -409,5 +411,5 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      * @notice Allows the contract to receive ETH directly.
      * @dev This can be used for donations or other direct payments to the contract.
      */
-    receive() external payable {}
+    receive() external payable { }
 }
