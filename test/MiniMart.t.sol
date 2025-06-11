@@ -15,19 +15,23 @@ import "forge-std/Test.sol";
 import "../src/MiniMart.sol";
 import "../src/TestNFT.sol";
 
+// declare the Ownable v4.9 custom error so we can reference its selector
+error OwnableUnauthorizedAccount(address);
+
 contract MiniMartTest is Test {
-    MiniMart     internal miniMart;
-    TestNFT      internal nft;
-    TestNFT      internal otherNft;
+    MiniMart internal miniMart;
+    TestNFT  internal nft;
+    TestNFT  internal otherNft;
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Test actors ‑ we give them ETH in `setUp`
+    // Test actors (private keys are deterministic so we can sign orders)
     // ──────────────────────────────────────────────────────────────────────────
-    address internal owner   = address(0xA11CE);
-    address internal seller  = address(0xB0B);
-    uint256 internal sellerPk = uint256(0xB0B);           // private key for vm.sign
-    address internal buyer   = address(0xCAFE);
-    uint256 internal buyerPk  = uint256(0xCAFE);
+    uint256 internal constant sellerPk = uint256(0xB0B);
+    uint256 internal constant buyerPk  = uint256(0xCAFE);
+
+    address internal owner;
+    address internal seller;
+    address internal buyer;
 
     // helper constant
     uint256 internal constant TOKEN_ID = 0;
@@ -36,6 +40,11 @@ contract MiniMartTest is Test {
     // setUp
     // ──────────────────────────────────────────────────────────────────────────
     function setUp() public {
+        // derive addresses from private keys so signatures recover correctly
+        owner  = vm.addr(uint256(1));
+        seller = vm.addr(sellerPk);
+        buyer  = vm.addr(buyerPk);
+
         // label addresses for nicer traces
         vm.label(owner,  "Owner");
         vm.label(seller, "Seller");
@@ -217,7 +226,7 @@ contract MiniMartTest is Test {
     function testBatchRemoveOrders() public {
         bytes32[] memory hashes = new bytes32[](3);
 
-        for(uint8 i; i < 3; ++i){
+        for (uint8 i; i < 3; ++i) {
             (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
                 _createOrder(0.5 ether + i, 0, i); // price different, nonce incrementing
             hashes[i] = digest;
@@ -227,7 +236,7 @@ contract MiniMartTest is Test {
         vm.prank(seller);
         miniMart.batchRemoveOrder(hashes);
 
-        for(uint8 i; i < 3; ++i){
+        for (uint8 i; i < 3; ++i) {
             MiniMart.Order memory check = miniMart.getOrder(hashes[i]);
             assertEq(check.seller, address(0), "order not removed");
         }
@@ -250,7 +259,7 @@ contract MiniMartTest is Test {
     }
 
     function testSetWhitelistFailsIfNotOwner() public {
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(OwnableUnauthorizedAccount.selector);
         vm.prank(seller);
         miniMart.setWhitelistStatus(address(otherNft), true);
     }
@@ -278,13 +287,11 @@ contract MiniMartTest is Test {
     // ──────────────────────────────────────────────────────────────────────────
     // Invariant ‑ nonces always strictly increase per seller
     // ──────────────────────────────────────────────────────────────────────────
-    // Fuzz test: generate multiple listings in random order and ensure nonce
-    // monotonicity.
     function testFuzz_NonceMonotonicity(uint96 price, uint64 runs) public {
         price = uint96(bound(uint256(price), 10_000_000_000_000, 1 ether)); // bound ≥ min price
         runs  = uint64(bound(uint256(runs), 1, 20));
 
-        for(uint64 i; i < runs; ++i){
+        for (uint64 i; i < runs; ++i) {
             (MiniMart.Order memory order, bytes memory sig, ) =
                 _createOrder(price, 0, i);
             miniMart.addOrder(order, sig);
