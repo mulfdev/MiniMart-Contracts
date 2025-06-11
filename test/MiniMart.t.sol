@@ -59,26 +59,26 @@ contract MiniMartTest is Test {
     // ──────────────────────────────────────────────────────────────────────────
     function setUp() public {
         // derive addresses from private keys so signatures recover correctly
-        owner = vm.addr(uint256(1));
-        seller = vm.addr(sellerPk);
-        buyer = vm.addr(buyerPk);
+        owner   = vm.addr(uint256(1));
+        seller  = vm.addr(sellerPk);
+        buyer   = vm.addr(buyerPk);
 
         // label addresses for nicer traces
-        vm.label(owner, "Owner");
+        vm.label(owner,  "Owner");
         vm.label(seller, "Seller");
-        vm.label(buyer, "Buyer");
+        vm.label(buyer,  "Buyer");
 
         // provide funds
-        vm.deal(owner, 100 ether);
+        vm.deal(owner,  100 ether);
         vm.deal(seller, 100 ether);
-        vm.deal(buyer, 100 ether);
+        vm.deal(buyer,  100 ether);
 
         // deploy MiniMart
         vm.prank(owner);
         miniMart = new MiniMart(owner, "MiniMart", "1");
 
         // deploy NFTs
-        nft = new TestNFT("ipfs://base", seller);
+        nft      = new TestNFT("ipfs://base",  seller);
         otherNft = new TestNFT("ipfs://other", seller);
 
         // mint one token for seller (tokenId = 0)
@@ -97,46 +97,21 @@ contract MiniMartTest is Test {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Helpers
-    // ──────────────────────────────────────────────────────────────────────────
-    /**
-     * Creates an order struct + signature convenient for the tests.
-     */
-    function _createOrder(uint256 price, uint64 expiration, uint64 nonce)
-        internal
-        view
-        returns (MiniMart.Order memory order, bytes memory signature, bytes32 digest)
-    {
-        order = MiniMart.Order({
-            price: price,
-            tokenId: TOKEN_ID,
-            nftContract: address(nft),
-            seller: seller,
-            expiration: expiration,
-            nonce: nonce
-        });
-
-        digest = miniMart.hashOrder(order);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
-        signature = abi.encodePacked(r, s, v);
-    }
-
-    /**
-     * Lists a minimal valid order priced at 1 ether and returns its hash.
-     */
-    function _listSimpleOrder() internal returns (bytes32 digest) {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 h) =
-            _createOrder(1 ether, 0, miniMart.nonces(seller));
-        digest = h;
-        miniMart.addOrder(order, sig);
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
     // Unit tests ‑ listing (success paths)
     // ──────────────────────────────────────────────────────────────────────────
     function testAddOrderSuccess() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, 0, 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
 
         // anyone can submit the listing tx, does not have to be the seller
         vm.prank(buyer);
@@ -172,18 +147,40 @@ contract MiniMartTest is Test {
     }
 
     function testAddOrderFailsWithWrongNonce() public {
-        (MiniMart.Order memory order, bytes memory sig,) = _createOrder(1 ether, 0, 5); // wrong nonce == 5
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 5 // wrong nonce
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.expectRevert(MiniMart.NonceIncorrect.selector);
         miniMart.addOrder(order, sig);
     }
 
     function testAddOrderFails_SignerMustBeSeller() public {
-        (MiniMart.Order memory order,,) = _createOrder(1 ether, 0, 0);
-        order.seller = buyer; // mismatch
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
 
+        // seller signs correctly
         bytes32 digest = miniMart.hashOrder(order);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest); // signed by original sellerPk
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+
+        // tamper order so seller field no longer matches signature
+        order.seller = buyer;
+
         bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.expectRevert(MiniMart.SignerMustBeSeller.selector);
@@ -192,9 +189,21 @@ contract MiniMartTest is Test {
 
     function testAddOrderFails_OrderExpired() public {
         uint64 expiry = uint64(block.timestamp + 1);
-        (MiniMart.Order memory order, bytes memory sig,) = _createOrder(1 ether, expiry, 0);
 
-        // Advance time so that the order is expired at submission
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: expiry,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        // Advance time so that the order is already expired at submission
         vm.warp(block.timestamp + 2);
 
         vm.expectRevert(MiniMart.OrderExpired.selector);
@@ -202,7 +211,18 @@ contract MiniMartTest is Test {
     }
 
     function testAddOrderFails_PriceTooLow() public {
-        (MiniMart.Order memory order, bytes memory sig,) = _createOrder(1 wei, 0, 0); // below 10,000,000,000,000 wei
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 wei,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.expectRevert(MiniMart.OrderPriceTooLow.selector);
         miniMart.addOrder(order, sig);
@@ -226,9 +246,10 @@ contract MiniMartTest is Test {
 
         bytes32 digest = miniMart.hashOrder(order);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.expectRevert(MiniMart.NonERC721Interface.selector);
-        miniMart.addOrder(order, abi.encodePacked(r, s, v));
+        miniMart.addOrder(order, sig);
     }
 
     function testAddOrderFails_MarketplaceNotApproved() public {
@@ -236,15 +257,37 @@ contract MiniMartTest is Test {
         vm.prank(seller);
         nft.approve(address(0), TOKEN_ID);
 
-        (MiniMart.Order memory order, bytes memory sig,) = _createOrder(1 ether, 0, 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.expectRevert(MiniMart.MarketplaceNotApproved.selector);
         miniMart.addOrder(order, sig);
     }
 
     function testAddOrderFails_AlreadyListed() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, 0, 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
         miniMart.addOrder(order, sig);
 
         vm.expectRevert(MiniMart.AlreadyListed.selector);
@@ -261,7 +304,18 @@ contract MiniMartTest is Test {
         vm.prank(buyer);
         nft.approve(address(miniMart), TOKEN_ID);
 
-        (MiniMart.Order memory order, bytes memory sig,) = _createOrder(1 ether, 0, 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.expectRevert(MiniMart.NotTokenOwner.selector);
         miniMart.addOrder(order, sig);
@@ -271,8 +325,18 @@ contract MiniMartTest is Test {
     // Unit tests ‑ fulfillment (success path)
     // ──────────────────────────────────────────────────────────────────────────
     function testFulfillOrderSuccess() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(2 ether, 0, 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 2 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
 
         miniMart.addOrder(order, sig);
 
@@ -280,8 +344,8 @@ contract MiniMartTest is Test {
         assertEq(nft.ownerOf(TOKEN_ID), seller);
 
         // track balances
-        uint256 sellerBefore = seller.balance;
-        uint256 ownerBefore = owner.balance;
+        uint256 sellerBefore   = seller.balance;
+        uint256 ownerBefore    = owner.balance;
         uint256 contractBefore = address(miniMart).balance;
 
         uint256 fee = (order.price * miniMart.FEE_BPS()) / 10_000;
@@ -308,15 +372,25 @@ contract MiniMartTest is Test {
     // Unit tests ‑ fulfillment (negative paths that now REFUND instead of revert)
     // ──────────────────────────────────────────────────────────────────────────
     function testFulfillRefunds_OrderExpired() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, uint64(block.timestamp + 1), 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: uint64(block.timestamp + 1),
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
 
         miniMart.addOrder(order, sig);
 
         // order will be expired
         vm.warp(block.timestamp + 3);
 
-        uint256 buyerBefore = buyer.balance;
+        uint256 buyerBefore    = buyer.balance;
         uint256 contractBefore = address(miniMart).balance;
 
         vm.expectEmit(true, true, true, true);
@@ -336,13 +410,27 @@ contract MiniMartTest is Test {
     }
 
     function testFulfillRefunds_NotTokenOwner() public {
-        bytes32 digest = _listSimpleOrder();
+        // LIST
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: miniMart.nonces(seller)
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        miniMart.addOrder(order, sig);
 
         // seller no longer owns token
         vm.prank(seller);
         nft.transferFrom(seller, owner, TOKEN_ID);
 
-        uint256 buyerBefore = buyer.balance;
+        uint256 buyerBefore    = buyer.balance;
         uint256 contractBefore = address(miniMart).balance;
 
         vm.expectEmit(true, true, true, true);
@@ -357,13 +445,27 @@ contract MiniMartTest is Test {
     }
 
     function testFulfillRefunds_MarketplaceNotApproved() public {
-        bytes32 digest = _listSimpleOrder();
+        // LIST
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: miniMart.nonces(seller)
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        miniMart.addOrder(order, sig);
 
         // revoke approval
         vm.prank(seller);
         nft.approve(address(0), TOKEN_ID);
 
-        uint256 buyerBefore = buyer.balance;
+        uint256 buyerBefore    = buyer.balance;
         uint256 contractBefore = address(miniMart).balance;
 
         vm.expectEmit(true, true, true, true);
@@ -381,8 +483,18 @@ contract MiniMartTest is Test {
     // Unit tests ‑ fulfillment (negative paths that still revert)
     // ──────────────────────────────────────────────────────────────────────────
     function testFulfillOrderFailsWrongPrice() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, 0, 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
 
         miniMart.addOrder(order, sig);
 
@@ -400,8 +512,18 @@ contract MiniMartTest is Test {
     // Unit tests ‑ removing orders
     // ──────────────────────────────────────────────────────────────────────────
     function testRemoveOrderBySeller() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, 0, 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
 
         miniMart.addOrder(order, sig);
 
@@ -413,8 +535,18 @@ contract MiniMartTest is Test {
     }
 
     function testRemoveOrderFailsIfNotSeller() public {
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, 0, 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
 
         miniMart.addOrder(order, sig);
 
@@ -432,8 +564,19 @@ contract MiniMartTest is Test {
         bytes32[] memory hashes = new bytes32[](3);
 
         for (uint8 i; i < 3; ++i) {
-            (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-                _createOrder(0.5 ether + i, 0, i); // price different, nonce incrementing
+            MiniMart.Order memory order = MiniMart.Order({
+                price: 0.5 ether + i,
+                tokenId: TOKEN_ID,
+                nftContract: address(nft),
+                seller: seller,
+                expiration: 0,
+                nonce: i
+            });
+
+            bytes32 digest = miniMart.hashOrder(order);
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+            bytes memory sig = abi.encodePacked(r, s, v);
+
             hashes[i] = digest;
             miniMart.addOrder(order, sig);
         }
@@ -487,8 +630,19 @@ contract MiniMartTest is Test {
     // ──────────────────────────────────────────────────────────────────────────
     function testWithdrawFees() public {
         // create an order & fulfill to generate fees
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(3 ether, 0, 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 3 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
         miniMart.addOrder(order, sig);
         vm.prank(buyer);
         miniMart.fulfillOrder{ value: order.price }(digest);
@@ -552,12 +706,23 @@ contract MiniMartTest is Test {
         miniMart.pauseContract();
 
         // verify that state-changing functions guarded by whenNotPaused revert
-        (MiniMart.Order memory order, bytes memory sig,) = _createOrder(1 ether, 0, 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
         vm.expectRevert(Pausable.EnforcedPause.selector);
         vm.prank(buyer);
         miniMart.addOrder(order, sig);
 
-        // unpause the contract
+        // unpause
         vm.prank(owner);
         miniMart.unpause();
 
@@ -565,9 +730,8 @@ contract MiniMartTest is Test {
         vm.prank(buyer);
         miniMart.addOrder(order, sig);
 
-        // ensure order stored
-        bytes32 digest = miniMart.hashOrder(order);
-        assertEq(miniMart.getOrder(digest).seller, seller, "order not stored after unpause");
+        MiniMart.Order memory stored = miniMart.getOrder(digest);
+        assertEq(stored.seller, seller, "order not stored after unpause");
     }
 
     function testPauseAccessControl() public {
@@ -588,8 +752,17 @@ contract MiniMartTest is Test {
 
     function testFulfillOrderFailsWhenPaused() public {
         // create & list order while unpaused
-        (MiniMart.Order memory order, bytes memory sig, bytes32 digest) =
-            _createOrder(1 ether, 0, 0);
+        MiniMart.Order memory order = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            expiration: 0,
+            nonce: 0
+        });
+        bytes32 digest = miniMart.hashOrder(order);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
         miniMart.addOrder(order, sig);
 
         // pause
@@ -605,13 +778,26 @@ contract MiniMartTest is Test {
     // Invariant ‑ nonces always strictly increase per seller
     // ──────────────────────────────────────────────────────────────────────────
     function testFuzz_NonceMonotonicity(uint96 price, uint64 runs) public {
-        price = uint96(bound(uint256(price), 10_000_000_000_000, 1 ether)); // bound ≥ min price
-        runs = uint64(bound(uint256(runs), 1, 20));
+        price = uint96(bound(uint256(price), 10_000_000_000_000, 1 ether)); // ≥ min price
+        runs  = uint64(bound(uint256(runs), 1, 20));
 
         for (uint64 i; i < runs; ++i) {
-            (MiniMart.Order memory order, bytes memory sig,) = _createOrder(price, 0, i);
+            MiniMart.Order memory order = MiniMart.Order({
+                price: price,
+                tokenId: TOKEN_ID,
+                nftContract: address(nft),
+                seller: seller,
+                expiration: 0,
+                nonce: i
+            });
+
+            bytes32 digest = miniMart.hashOrder(order);
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+            bytes memory sig = abi.encodePacked(r, s, v);
+
             miniMart.addOrder(order, sig);
         }
+
         assertEq(miniMart.nonces(seller), runs, "nonce did not advance correctly");
     }
 }
