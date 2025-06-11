@@ -52,12 +52,11 @@ contract DeployLocal is Script, EIP712 {
                 nonce: currentNonce
             });
 
-            // Fixed: Match the order in the contract's _hashOrder function
             bytes32 structHash = keccak256(
                 abi.encode(
                     marketplace.ORDER_TYPEHASH(),
                     newOrder.price,
-                    newOrder.tokenId, // ← Fixed: tokenId before nftContract
+                    newOrder.tokenId,
                     newOrder.nftContract,
                     newOrder.seller,
                     newOrder.expiration,
