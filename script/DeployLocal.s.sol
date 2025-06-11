@@ -34,8 +34,13 @@ contract DeployLocal is Script, EIP712 {
         );
         marketplace = new MiniMart(payable(wallet), "MiniMart", "1");
 
+        marketplace.setWhitelistStatus(address(nft), true);
+
         for (uint i = 0; i <= 25; i++) {
             nft.mint(wallet);
+
+            // Approve the marketplace to transfer this specific token
+            nft.approve(address(marketplace), i);
 
             uint256 gasBefore = gasleft();
 
@@ -50,12 +55,13 @@ contract DeployLocal is Script, EIP712 {
                 nonce: currentNonce
             });
 
+            // Fixed: Match the order in the contract's _hashOrder function
             bytes32 structHash = keccak256(
                 abi.encode(
                     marketplace.ORDER_TYPEHASH(),
                     newOrder.price,
+                    newOrder.tokenId, // ← Fixed: tokenId before nftContract
                     newOrder.nftContract,
-                    newOrder.tokenId,
                     newOrder.seller,
                     newOrder.expiration,
                     newOrder.nonce
