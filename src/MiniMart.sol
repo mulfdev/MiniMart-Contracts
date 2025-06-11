@@ -196,6 +196,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
      */
     function addOrder(Order calldata order, bytes calldata signature)
         external
+        whenNotPaused
         nonReentrant
         returns (bytes32 orderDigest)
     {
@@ -243,7 +244,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
      *      The order is deleted after successful fulfillment.
      * @param orderHash The hash of the order to fulfill.
      */
-    function fulfillOrder(bytes32 orderHash) public payable nonReentrant {
+    function fulfillOrder(bytes32 orderHash) public payable whenNotPaused nonReentrant {
         Order memory order = getOrder(orderHash);
         IERC721 token = IERC721(order.nftContract);
 
@@ -406,6 +407,14 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         (bool ok,) = owner().call{ value: address(this).balance }("");
 
         if (!ok) revert FeeWithdrawlFailed();
+    }
+
+    function pauseContract() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     /**
