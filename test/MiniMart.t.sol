@@ -13,6 +13,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "../src/MiniMart.sol";
 import "../src/TestNFT.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * Helper mocks
@@ -552,7 +553,7 @@ contract MiniMartTest is Test {
 
         // verify that state-changing functions guarded by whenNotPaused revert
         (MiniMart.Order memory order, bytes memory sig,) = _createOrder(1 ether, 0, 0);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(Pausable.EnforcedPause.selector);
         vm.prank(buyer);
         miniMart.addOrder(order, sig);
 
@@ -595,7 +596,7 @@ contract MiniMartTest is Test {
         vm.prank(owner);
         miniMart.pauseContract();
 
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(Pausable.EnforcedPause.selector);
         vm.prank(buyer);
         miniMart.fulfillOrder{ value: order.price }(digest);
     }
