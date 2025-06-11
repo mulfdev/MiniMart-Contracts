@@ -7,13 +7,14 @@ import { EIP712 } from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 
 /**
  * @title MiniMart
  * @author mulf: https://github.com/mulfdev
  * @notice A lightweight, signature-based ERC721 marketplace.
  */
-contract MiniMart is Ownable, EIP712, ReentrancyGuard {
+contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     using ERC165Checker for address;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/

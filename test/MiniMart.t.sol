@@ -1,6 +1,5 @@
 /**
  * SPDX-License-Identifier: GPL-3.0
- * Foundry tests for the MiniMart marketplace.
  *
  * NOTE
  * ──────────────────────────────────────────────────────────────────────────────
