@@ -301,7 +301,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      * @dev Reverts if the order doesn't exist or the caller is not its creator.
      * @param orderHash The EIP‑712 hash of the order to remove.
      */
-    function removeOrder(bytes32 orderHash) external nonReentrant {
+    function removeOrder(bytes32 orderHash) external {
         _removeOrder(orderHash);
     }
 
@@ -312,7 +312,7 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      *      any order in the batch does not exist or was not created by the caller.
      * @param orderHashes An array of order hashes to be removed.
      */
-    function batchRemoveOrder(bytes32[] calldata orderHashes) external nonReentrant {
+    function batchRemoveOrder(bytes32[] calldata orderHashes) external {
         if (orderHashes.length == 0 || orderHashes.length > 25) {
             revert InvalidBatchSize();
         }
@@ -412,4 +412,8 @@ contract MiniMart is Ownable, EIP712, ReentrancyGuard {
      * @dev This can be used for donations or other direct payments to the contract.
      */
     receive() external payable { }
+
+    fallback() external payable {
+        revert();
+    }
 }
