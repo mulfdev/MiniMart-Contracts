@@ -380,7 +380,7 @@ contract MiniMartTest is Test {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Unit tests ‑ fulfillment (negative paths that now REFUND instead of revert)
+    // Unit tests ‑ fulfillment (negative paths that refund)
     // ──────────────────────────────────────────────────────────────────────────
     function testFulfillRefunds_OrderExpired() public {
         MiniMart.Order memory order = MiniMart.Order({
@@ -494,7 +494,7 @@ contract MiniMartTest is Test {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Unit tests ‑ fulfillment (negative paths that still revert)
+    // Unit tests ‑ fulfillment (negative paths that revert)
     // ──────────────────────────────────────────────────────────────────────────
     function testFulfillOrderFailsWrongPrice() public {
         MiniMart.Order memory order = MiniMart.Order({
