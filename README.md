@@ -73,18 +73,6 @@ The `Makefile` provides a convenient interface for common development tasks.
 
 ### Core Commands
 
-*   **Compile Contracts:**
-    ```bash
-    make compile
-    ```
-
-*   **Run Tests:**
-    ```bash
-    make test
-    # For more verbose output
-    make test ARGS="-vvv"
-    ```
-
 *   **Lint Contracts:**
     ```bash
     make lint
@@ -138,7 +126,6 @@ The deployment commands require a script file from the `script/` directory to be
     make deploy Deploy.s.sol
     ```
 
-For a full list of commands, run `make help`.
 
 ## Contract Overview
 

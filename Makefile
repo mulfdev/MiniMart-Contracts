@@ -30,14 +30,6 @@ FORGE_SCRIPT_OPTS = \
 
 all: compile test
 
-compile:
-	@echo "Compiling contracts..."
-	forge compile
-
-test:
-	@echo "Running tests..."
-	forge test --match-path "test/*"
-
 lint:
 	@echo "Linting Contracts..."
 	solhint 'src/**/*.sol'
@@ -45,6 +37,7 @@ lint:
 clean:
 	@echo "Cleaning out and cache directories..."
 	rm -rf out cache
+
 slither:
 	slither . --filter-paths src/ --exclude-dependencies
 
@@ -54,8 +47,6 @@ analyze:
 	  out/MiniMart.sol/MiniMart.json \
 	  > analysis/minimart-runtime.hex
 	myth analyze -f analysis/minimart-runtime.hex
-
-
 
 
 # This rule handles any target ending in .s.sol.
@@ -98,27 +89,3 @@ deploy-local:
 	# Default Anvil RPC URL and the first Anvil provided private key
 	forge script script/$(PARSED_SCRIPT_ARG) --rpc-url http://127.0.0.1:8545 --broadcast --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
-help:
-	@echo "Available commands:"
-	@echo "  make all           - Compiles contracts and runs tests"
-	@echo "  make compile       - Compiles contracts"
-	@echo "  make test          - Runs tests"
-	@echo "  make lint          - Lints contracts"
-	@echo "  make clean         - Cleans build artifacts, cache, and broadcast directories"
-	@echo ""
-	@echo "Script Execution (requires a script file argument):"
-	@echo "  Example: make deploy MyScript.s.sol"
-	@echo "  Ensure the script file (e.g., MyScript.s.sol) is located in the 'script/' directory."
-	@echo ""
-	@echo "  make deploy <YourScript.s.sol>"
-	@echo "    Deploys 'script/YourScript.s.sol'."
-	@echo "    Uses WALLET_ID, KEYSTORE_PASSWORD, and RPC_URL from .env."
-	@echo ""
-	@echo "  make dry-run <YourScript.s.sol>"
-	@echo "    Dry-runs 'script/YourScript.s.sol'."
-	@echo "    Uses WALLET_ID, KEYSTORE_PASSWORD, and RPC_URL from .env."
-	@echo ""
-	@echo "  make deploy-local <YourScript.s.sol>"
-	@echo "    Deploys 'script/YourScript.s.sol' to local Anvil (127.0.0.1:8545)."
-	@echo "    Uses a default Anvil private key."
-	@echo ""
