@@ -59,26 +59,26 @@ contract MiniMartTest is Test {
     // ──────────────────────────────────────────────────────────────────────────
     function setUp() public {
         // derive addresses from private keys so signatures recover correctly
-        owner   = vm.addr(uint256(1));
-        seller  = vm.addr(sellerPk);
-        buyer   = vm.addr(buyerPk);
+        owner = vm.addr(uint256(1));
+        seller = vm.addr(sellerPk);
+        buyer = vm.addr(buyerPk);
 
         // label addresses for nicer traces
-        vm.label(owner,  "Owner");
+        vm.label(owner, "Owner");
         vm.label(seller, "Seller");
-        vm.label(buyer,  "Buyer");
+        vm.label(buyer, "Buyer");
 
         // provide funds
-        vm.deal(owner,  100 ether);
+        vm.deal(owner, 100 ether);
         vm.deal(seller, 100 ether);
-        vm.deal(buyer,  100 ether);
+        vm.deal(buyer, 100 ether);
 
         // deploy MiniMart
         vm.prank(owner);
         miniMart = new MiniMart(owner, "MiniMart", "1");
 
         // deploy NFTs
-        nft      = new TestNFT("ipfs://base",  seller);
+        nft = new TestNFT("ipfs://base", seller);
         otherNft = new TestNFT("ipfs://other", seller);
 
         // mint one token for seller (tokenId = 0)
@@ -105,6 +105,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -133,6 +134,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(otherNft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -152,9 +154,10 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 5 // wrong nonce
-        });
+         });
 
         bytes32 digest = miniMart.hashOrder(order);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
@@ -170,6 +173,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -195,6 +199,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: expiry,
             nonce: 0
         });
@@ -216,6 +221,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -240,6 +246,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(bogus),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -262,6 +269,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -280,6 +288,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -309,6 +318,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -330,6 +340,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -344,8 +355,8 @@ contract MiniMartTest is Test {
         assertEq(nft.ownerOf(TOKEN_ID), seller);
 
         // track balances
-        uint256 sellerBefore   = seller.balance;
-        uint256 ownerBefore    = owner.balance;
+        uint256 sellerBefore = seller.balance;
+        uint256 ownerBefore = owner.balance;
         uint256 contractBefore = address(miniMart).balance;
 
         uint256 fee = (order.price * miniMart.FEE_BPS()) / 10_000;
@@ -377,6 +388,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: uint64(block.timestamp + 1),
             nonce: 0
         });
@@ -390,7 +402,7 @@ contract MiniMartTest is Test {
         // order will be expired
         vm.warp(block.timestamp + 3);
 
-        uint256 buyerBefore    = buyer.balance;
+        uint256 buyerBefore = buyer.balance;
         uint256 contractBefore = address(miniMart).balance;
 
         vm.expectEmit(true, true, true, true);
@@ -416,6 +428,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: miniMart.nonces(seller)
         });
@@ -430,7 +443,7 @@ contract MiniMartTest is Test {
         vm.prank(seller);
         nft.transferFrom(seller, owner, TOKEN_ID);
 
-        uint256 buyerBefore    = buyer.balance;
+        uint256 buyerBefore = buyer.balance;
         uint256 contractBefore = address(miniMart).balance;
 
         vm.expectEmit(true, true, true, true);
@@ -451,6 +464,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: miniMart.nonces(seller)
         });
@@ -465,7 +479,7 @@ contract MiniMartTest is Test {
         vm.prank(seller);
         nft.approve(address(0), TOKEN_ID);
 
-        uint256 buyerBefore    = buyer.balance;
+        uint256 buyerBefore = buyer.balance;
         uint256 contractBefore = address(miniMart).balance;
 
         vm.expectEmit(true, true, true, true);
@@ -488,6 +502,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -517,6 +532,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -540,6 +556,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -569,6 +586,7 @@ contract MiniMartTest is Test {
                 tokenId: TOKEN_ID,
                 nftContract: address(nft),
                 seller: seller,
+                taker: address(0),
                 expiration: 0,
                 nonce: i
             });
@@ -635,6 +653,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -681,6 +700,7 @@ contract MiniMartTest is Test {
             tokenId: 0,
             nftContract: address(localNft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -711,6 +731,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -757,6 +778,7 @@ contract MiniMartTest is Test {
             tokenId: TOKEN_ID,
             nftContract: address(nft),
             seller: seller,
+            taker: address(0),
             expiration: 0,
             nonce: 0
         });
@@ -779,7 +801,7 @@ contract MiniMartTest is Test {
     // ──────────────────────────────────────────────────────────────────────────
     function testFuzz_NonceMonotonicity(uint96 price, uint64 runs) public {
         price = uint96(bound(uint256(price), 10_000_000_000_000, 1 ether)); // ≥ min price
-        runs  = uint64(bound(uint256(runs), 1, 20));
+        runs = uint64(bound(uint256(runs), 1, 20));
 
         for (uint64 i; i < runs; ++i) {
             MiniMart.Order memory order = MiniMart.Order({
@@ -787,6 +809,7 @@ contract MiniMartTest is Test {
                 tokenId: TOKEN_ID,
                 nftContract: address(nft),
                 seller: seller,
+                taker: address(0),
                 expiration: 0,
                 nonce: i
             });

@@ -48,6 +48,7 @@ contract DeployLocal is Script, EIP712 {
                 nftContract: address(nft),
                 tokenId: i,
                 seller: wallet,
+                taker: address(0),
                 expiration: 0,
                 nonce: currentNonce
             });
