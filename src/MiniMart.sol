@@ -89,6 +89,8 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     error StatusAlreadySet();
     /// @notice The buyer couldnt be refunded on purchase;
     error RefundFailed();
+    /// @notice The msg.sender for a private order is invalid
+    error InvalidTaker();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
@@ -96,18 +98,20 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
     /// @notice A struct representing a sell order for an NFT.
     struct Order {
-        /// @dev The price of the NFT in wei.
-        uint256 price;
-        /// @dev The ID of the token being sold.
-        uint256 tokenId;
-        /// @dev The contract address of the NFT.
-        address nftContract;
         /// @dev The address of the seller.
         address seller;
+        /// @dev The price of the NFT in wei.
+        uint96 price;
+        /// @dev The contract address of the NFT.
+        address nftContract;
         /// @dev The Unix timestamp (seconds) when the order expires. 0 means no expiration.
         uint64 expiration;
+        /// @dev The address of the intended buyer for a private sale. If set to address(0), the order is public.
+        address taker;
         /// @dev The seller's nonce for this order, used to prevent replay attacks.
         uint64 nonce;
+        /// @dev The ID of the token being sold.
+        uint256 tokenId;
     }
 
     /// @notice A struct containing whitelist information for NFT contracts.
@@ -127,7 +131,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
     /// @notice type hash of the order struct for the hashOrder function
     bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(uint256 price,uint256 tokenId,address nftContract,address seller,uint64 expiration, uint64 nonce)"
+        "Order(address seller,uint96 price,address nftContract,uint64 expiration,address taker,uint64 nonce,uint256 tokenId)"
     );
 
     /// @notice Mapping from an order hash to the corresponding Order struct.
@@ -168,15 +172,15 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         bytes32 structHash = keccak256(
             abi.encode(
                 ORDER_TYPEHASH,
-                order.price,
-                order.tokenId,
-                order.nftContract,
                 order.seller,
+                order.price,
+                order.nftContract,
                 order.expiration,
-                order.nonce
+                order.taker,
+                order.nonce,
+                order.tokenId
             )
         );
-
         return _hashTypedDataV4(structHash);
     }
 
@@ -250,6 +254,9 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
         if (order.seller == address(0)) revert OrderNotFound();
         if (msg.value != order.price) revert OrderPriceWrong();
+        if (order.taker != address(0) && order.taker != msg.sender) {
+            revert InvalidTaker();
+        }
 
         if (order.expiration != 0 && order.expiration <= block.timestamp) {
             delete orders[orderHash];
