@@ -42,7 +42,7 @@ contract MiniMartTest is Test {
     TestNFT internal otherNft;
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Test actors (private keys are deterministic so we can sign orders)
+    // Test actors
     // ──────────────────────────────────────────────────────────────────────────
     uint256 internal constant sellerPk = uint256(0xB0B);
     uint256 internal constant buyerPk = uint256(0xCAFE);
@@ -51,47 +51,38 @@ contract MiniMartTest is Test {
     address internal seller;
     address internal buyer;
 
-    // helper constant
     uint256 internal constant TOKEN_ID = 0;
 
     // ──────────────────────────────────────────────────────────────────────────
     // setUp
     // ──────────────────────────────────────────────────────────────────────────
     function setUp() public {
-        // derive addresses from private keys so signatures recover correctly
         owner = vm.addr(uint256(1));
         seller = vm.addr(sellerPk);
         buyer = vm.addr(buyerPk);
 
-        // label addresses for nicer traces
         vm.label(owner, "Owner");
         vm.label(seller, "Seller");
         vm.label(buyer, "Buyer");
 
-        // provide funds
         vm.deal(owner, 100 ether);
         vm.deal(seller, 100 ether);
         vm.deal(buyer, 100 ether);
 
-        // deploy MiniMart
         vm.prank(owner);
         miniMart = new MiniMart(owner, "MiniMart", "1");
 
-        // deploy NFTs
         nft = new TestNFT("ipfs://base", seller);
         otherNft = new TestNFT("ipfs://other", seller);
 
-        // mint one token for seller (tokenId = 0)
         vm.prank(seller);
         nft.mint(seller);
         vm.prank(seller);
         otherNft.mint(seller);
 
-        // whitelist `nft`, leave `otherNft` un-whitelisted
         vm.prank(owner);
         miniMart.setWhitelistStatus(address(nft), true);
 
-        // seller approves marketplace for tokenId 0
         vm.prank(seller);
         nft.approve(address(miniMart), TOKEN_ID);
     }
@@ -422,7 +413,6 @@ contract MiniMartTest is Test {
     }
 
     function testFulfillRefunds_NotTokenOwner() public {
-        // LIST
         MiniMart.Order memory order = MiniMart.Order({
             price: 1 ether,
             tokenId: TOKEN_ID,
@@ -458,7 +448,6 @@ contract MiniMartTest is Test {
     }
 
     function testFulfillRefunds_MarketplaceNotApproved() public {
-        // LIST
         MiniMart.Order memory order = MiniMart.Order({
             price: 1 ether,
             tokenId: TOKEN_ID,
@@ -647,7 +636,6 @@ contract MiniMartTest is Test {
     // withdrawFees
     // ──────────────────────────────────────────────────────────────────────────
     function testWithdrawFees() public {
-        // create an order & fulfill to generate fees
         MiniMart.Order memory order = MiniMart.Order({
             price: 3 ether,
             tokenId: TOKEN_ID,
@@ -721,11 +709,9 @@ contract MiniMartTest is Test {
     // Pause / Unpause
     // ──────────────────────────────────────────────────────────────────────────
     function testPauseAndUnpauseByOwner() public {
-        // pause the contract
         vm.prank(owner);
         miniMart.pauseContract();
 
-        // verify that state-changing functions guarded by whenNotPaused revert
         MiniMart.Order memory order = MiniMart.Order({
             price: 1 ether,
             tokenId: TOKEN_ID,
@@ -743,11 +729,9 @@ contract MiniMartTest is Test {
         vm.prank(buyer);
         miniMart.addOrder(order, sig);
 
-        // unpause
         vm.prank(owner);
         miniMart.unpause();
 
-        // now addOrder succeeds
         vm.prank(buyer);
         miniMart.addOrder(order, sig);
 
@@ -761,7 +745,6 @@ contract MiniMartTest is Test {
         vm.prank(seller);
         miniMart.pauseContract();
 
-        // owner pauses
         vm.prank(owner);
         miniMart.pauseContract();
 
@@ -772,7 +755,6 @@ contract MiniMartTest is Test {
     }
 
     function testFulfillOrderFailsWhenPaused() public {
-        // create & list order while unpaused
         MiniMart.Order memory order = MiniMart.Order({
             price: 1 ether,
             tokenId: TOKEN_ID,
@@ -787,7 +769,6 @@ contract MiniMartTest is Test {
         bytes memory sig = abi.encodePacked(r, s, v);
         miniMart.addOrder(order, sig);
 
-        // pause
         vm.prank(owner);
         miniMart.pauseContract();
 
