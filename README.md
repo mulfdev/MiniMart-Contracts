@@ -6,8 +6,8 @@ Mini-Mart is a gas-efficient, signature-based (EIP-712) ERC721 marketplace contr
 
 *   **Gas-Efficient Listings:** Sellers sign EIP-712 typed data messages off-chain to create sale orders. This means listing an NFT is free (no gas).
 *   **On-Chain Order Fulfillment:** A buyer submits the seller's signed order to the contract, and the `fulfillOrder` function atomically handles payment, fee collection, and NFT transfer.
-*   **Robust Buyer Protection:** If an order cannot be fulfilled (e.g., the NFT was transferred, approval was revoked, or the listing expired), the buyer's payment is automatically refunded within the same transaction, rather than reverting.
-*   **Fixed Platform Fee:** A 3% fee (`300 BPS`) is collected on every successful sale.
+*   **Buyer Protection:** If an order cannot be fulfilled (e.g., the NFT was transferred, approval was revoked, or the listing expired), the buyer's payment is automatically refunded within the same transaction.
+*   **Fixed Platform Fee:** A 3% fee is collected on every successful sale.
 *   **Admin Controls:**
     *   **Collection Whitelisting:** The owner can whitelist specific NFT contracts that are allowed to be traded.
     *   **Pausable:** The owner can pause and unpause all trading activity (`addOrder`, `fulfillOrder`) in case of an emergency.
@@ -97,7 +97,7 @@ The `Makefile` provides a convenient interface for common development tasks.
 
 ### Security Analysis
 
-The project includes Makefile commands for running popular security analysis tools.
+The project includes commands for running popular security analysis tools.
 
 *   **Slither (Static Analysis):**
     Run Slither for automated vulnerability detection and code analysis on the `src` contracts.
