@@ -91,6 +91,8 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     error RefundFailed();
     /// @notice The msg.sender for a private order is invalid
     error InvalidTaker();
+    /// @notice generic error for fallback function
+    error CallNotSupported();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
@@ -308,11 +310,13 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
      * @param orderHashes An array of order hashes to be removed.
      */
     function batchRemoveOrder(bytes32[] calldata orderHashes) external {
-        if (orderHashes.length == 0 || orderHashes.length > 25) {
+        uint8 batchSize = uint8(orderHashes.length);
+
+        if (batchSize == 0 || batchSize > 25) {
             revert InvalidBatchSize();
         }
 
-        for (uint8 i = 0; i < orderHashes.length;) {
+        for (uint8 i = 0; i < batchSize;) {
             _removeOrder(orderHashes[i]);
             unchecked {
                 ++i;
@@ -417,6 +421,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     receive() external payable { }
 
     fallback() external payable {
-        revert();
+        revert CallNotSupported();
     }
 }
