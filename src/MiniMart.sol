@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.30;
+pragma solidity 0.8.30;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -200,46 +200,32 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
      */
     function addOrder(Order calldata order, bytes calldata signature)
         external
-        whenNotPaused
         nonReentrant
+        whenNotPaused
         returns (bytes32 orderDigest)
     {
         IERC721 token = IERC721(order.nftContract);
         orderDigest = hashOrder(order);
-
         address signer = ECDSA.recover(orderDigest, signature);
         uint64 currentNonce = nonces[signer];
 
-        bool whitelisted = whitelist[order.nftContract];
-
-        if (whitelisted == false) revert NotWhitelisted();
-        if (order.expiration != 0 && order.expiration <= block.timestamp) {
-            revert OrderExpired();
-        }
+        if (!whitelist[order.nftContract]) revert NotWhitelisted();
+        if (order.expiration != 0 && order.expiration <= block.timestamp) revert OrderExpired();
         if (signer != order.seller) revert SignerMustBeSeller();
         if (signer == address(0)) revert ZeroAddress();
-        if (order.price < 10000000000000 wei) revert OrderPriceTooLow();
+        if (order.price < 1e13) revert OrderPriceTooLow();
         if (orders[orderDigest].seller != address(0)) revert AlreadyListed();
         if (order.nonce != currentNonce) revert NonceIncorrect();
         if (!order.nftContract.supportsInterface(type(IERC721).interfaceId)) {
             revert NonERC721Interface();
         }
-        if (token.getApproved(order.tokenId) != address(this)) {
-            revert MarketplaceNotApproved();
-        }
-
+        if (token.getApproved(order.tokenId) != address(this)) revert MarketplaceNotApproved();
         if (signer != token.ownerOf(order.tokenId)) revert NotTokenOwner();
 
         nonces[signer] = currentNonce + 1;
         orders[orderDigest] = order;
 
-        emit OrderListed({
-            orderId: orderDigest,
-            seller: signer,
-            nftContract: order.nftContract,
-            tokenId: order.tokenId,
-            price: order.price
-        });
+        emit OrderListed(orderDigest, signer, order.nftContract, order.tokenId, order.price);
     }
 
     /**
@@ -248,7 +234,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
      *      The order is deleted after successful fulfillment.
      * @param orderHash The hash of the order to fulfill.
      */
-    function fulfillOrder(bytes32 orderHash) public payable whenNotPaused nonReentrant {
+    function fulfillOrder(bytes32 orderHash) external payable nonReentrant whenNotPaused {
         Order memory order = getOrder(orderHash);
         IERC721 token = IERC721(order.nftContract);
 
@@ -288,7 +274,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
         token.transferFrom(order.seller, msg.sender, order.tokenId);
 
-        uint256 fee = (order.price * FEE_BPS) / 10_000;
+        uint256 fee = (order.price * FEE_BPS) / 1e4;
 
         (bool orderPayment,) = order.seller.call{ value: order.price - fee }("");
         if (!orderPayment) revert CouldNotPaySeller();
