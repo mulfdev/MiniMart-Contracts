@@ -8,12 +8,11 @@
  *   example-based, fuzz-based and stateful testing.
  * • Run with `forge test -vv`
  */
-pragma solidity ^0.8.20;
+pragma solidity 0.8.30;
 
 import "forge-std/Test.sol";
 import "../src/MiniMart.sol";
 import "../src/TestNFT.sol";
-import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * Helper mocks
@@ -46,10 +45,12 @@ contract MiniMartTest is Test {
     // ──────────────────────────────────────────────────────────────────────────
     uint256 internal constant sellerPk = uint256(0xB0B);
     uint256 internal constant buyerPk = uint256(0xCAFE);
+    uint256 internal constant takerPk = uint256(0xBA5E);
 
     address internal owner;
     address internal seller;
     address internal buyer;
+    address internal taker;
 
     uint256 internal constant TOKEN_ID = 0;
 
@@ -60,14 +61,17 @@ contract MiniMartTest is Test {
         owner = vm.addr(uint256(1));
         seller = vm.addr(sellerPk);
         buyer = vm.addr(buyerPk);
+        taker = vm.addr(takerPk);
 
         vm.label(owner, "Owner");
         vm.label(seller, "Seller");
         vm.label(buyer, "Buyer");
+        vm.label(taker, "Taker");
 
         vm.deal(owner, 100 ether);
         vm.deal(seller, 100 ether);
         vm.deal(buyer, 100 ether);
+        vm.deal(taker, 100 ether);
 
         vm.prank(owner);
         miniMart = new MiniMart(owner, "MiniMart", "1");
@@ -77,7 +81,6 @@ contract MiniMartTest is Test {
 
         vm.prank(seller);
         nft.mint(seller);
-        vm.prank(seller);
         otherNft.mint(seller);
 
         vm.prank(owner);
@@ -368,6 +371,55 @@ contract MiniMartTest is Test {
         // fee stays inside the contract until `withdrawFees`
         assertEq(owner.balance, ownerBefore, "owner should NOT receive fee yet");
         assertEq(address(miniMart).balance, contractBefore + fee, "contract should hold the fee");
+    }
+
+    function testPrivateFulfill_OrderSuccess() public {
+        vm.prank(seller);
+        MiniMart.Order memory privateOrder = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            taker: taker,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(privateOrder);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+        miniMart.addOrder(privateOrder, sig);
+
+        vm.prank(taker);
+
+        //owner fulfills private order - should work
+        miniMart.fulfillOrder{ value: privateOrder.price }(digest);
+
+        assertEq(nft.ownerOf(TOKEN_ID), taker);
+    }
+
+    function testPrivateFulfill_OrderFailure() public {
+        vm.prank(seller);
+        MiniMart.Order memory privateOrder = MiniMart.Order({
+            price: 1 ether,
+            tokenId: TOKEN_ID,
+            nftContract: address(nft),
+            seller: seller,
+            taker: taker,
+            expiration: 0,
+            nonce: 0
+        });
+
+        bytes32 digest = miniMart.hashOrder(privateOrder);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+        miniMart.addOrder(privateOrder, sig);
+
+        vm.expectRevert(MiniMart.InvalidTaker.selector);
+
+        miniMart.fulfillOrder{ value: privateOrder.price }(digest);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
