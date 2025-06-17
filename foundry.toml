@@ -8,6 +8,7 @@ optimizer_runs = 100000
 etherscan_api_key = "${ETHERSCAN_API_KEY}"
 gas_reports = ["MiniMart"]
 evm_version = "cancun"
+sender = "0x4FBcb0ABB61a366D9742009BB986B9C0Eba9FEF9"
 
 [rpc_endpoints]
 base = "${BASE_RPC_URL}"
