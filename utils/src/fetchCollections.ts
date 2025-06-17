@@ -1,6 +1,8 @@
 import { writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { setTimeout } from 'node:timers/promises';
+
 const { OPENSEA_API_KEY } = process.env;
 
 if (!OPENSEA_API_KEY) throw new Error('OPENSEA KEY missing');
@@ -70,6 +72,7 @@ async function fetchCollections() {
         cursor = data.next;
 
         console.log(data.next);
+        await setTimeout(500);
     }
 
     await writeFile(filePath, JSON.stringify(collectionData));
