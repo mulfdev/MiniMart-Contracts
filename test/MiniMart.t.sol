@@ -762,7 +762,7 @@ contract MiniMartTest is Test {
     // ──────────────────────────────────────────────────────────────────────────
     function testPauseAndUnpauseByOwner() public {
         vm.prank(owner);
-        miniMart.pauseContract();
+        miniMart.pause();
 
         MiniMart.Order memory order = MiniMart.Order({
             price: 1 ether,
@@ -795,10 +795,10 @@ contract MiniMartTest is Test {
         // non-owner should not be able to pause
         vm.expectRevert(abi.encodeWithSelector(OwnableUnauthorizedAccount.selector, seller));
         vm.prank(seller);
-        miniMart.pauseContract();
+        miniMart.pause();
 
         vm.prank(owner);
-        miniMart.pauseContract();
+        miniMart.pause();
 
         // non-owner cannot unpause
         vm.expectRevert(abi.encodeWithSelector(OwnableUnauthorizedAccount.selector, seller));
@@ -822,7 +822,7 @@ contract MiniMartTest is Test {
         miniMart.addOrder(order, sig);
 
         vm.prank(owner);
-        miniMart.pauseContract();
+        miniMart.pause();
 
         vm.expectRevert(Pausable.EnforcedPause.selector);
         vm.prank(buyer);

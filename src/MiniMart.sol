@@ -406,7 +406,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         if (!ok) revert FeeWithdrawlFailed();
     }
 
-    function pauseContract() external onlyOwner {
+    function pause() external onlyOwner {
         _pause();
     }
 
