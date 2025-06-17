@@ -8,10 +8,7 @@ contract TestNFT is ERC721, Ownable {
     string private fixedTokenURI;
     uint256 private _nextTokenId;
 
-    constructor(string memory fixedURI, address initialOwner)
-        ERC721("TestNFT", "TNFT")
-        Ownable(initialOwner)
-    {
+    constructor(string memory fixedURI) ERC721("TestNFT", "TNFT") Ownable(msg.sender) {
         fixedTokenURI = fixedURI;
     }
 
