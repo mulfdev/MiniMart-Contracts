@@ -6,11 +6,14 @@ import "forge-std/console2.sol";
 import { MiniMart } from "../src/MiniMart.sol";
 import { TestNFT } from "../src/TestNFT.sol";
 
-contract Deploy is Script {
+contract MintTestNFTs is Script {
     function run() external {
         vm.createSelectFork("base_sepolia");
+        address eoaDeployer = msg.sender;
 
+        vm.broadcast(eoaDeployer);
         TestNFT testNft = new TestNFT("https://media.mulf.wtf/testnft-img.png", msg.sender);
+
         for (uint8 i; i < 15; i++) {
             testNft.mint(0x02F9B04A37b089b5887c491097E62D2111c2BB7F);
         }
