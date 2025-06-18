@@ -83,9 +83,6 @@ contract MiniMartTest is Test {
         nft.mint(seller);
         otherNft.mint(seller);
 
-        vm.prank(owner);
-        miniMart.setWhitelistStatus(address(nft), true);
-
         vm.prank(seller);
         nft.approve(address(miniMart), TOKEN_ID);
     }
@@ -121,27 +118,6 @@ contract MiniMartTest is Test {
     // ──────────────────────────────────────────────────────────────────────────
     // Unit tests ‑ listing (negative paths)
     // ──────────────────────────────────────────────────────────────────────────
-    function testAddOrderFailsIfNotWhitelisted() public {
-        // build order for `otherNft` which is NOT whitelisted
-        MiniMart.Order memory badOrder = MiniMart.Order({
-            price: 1 ether,
-            tokenId: TOKEN_ID,
-            nftContract: address(otherNft),
-            seller: seller,
-            taker: address(0),
-            expiration: 0,
-            nonce: 0
-        });
-
-        bytes32 digest = miniMart.hashOrder(badOrder);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
-        bytes memory sig = abi.encodePacked(r, s, v);
-
-        vm.expectRevert(MiniMart.NotWhitelisted.selector);
-        vm.prank(buyer);
-        miniMart.addOrder(badOrder, sig);
-    }
-
     function testAddOrderFailsWithWrongNonce() public {
         MiniMart.Order memory order = MiniMart.Order({
             price: 1 ether,
@@ -230,10 +206,6 @@ contract MiniMartTest is Test {
 
     function testAddOrderFails_NonERC721Interface() public {
         NonERC165 bogus = new NonERC165();
-
-        // whitelist the bogus contract so that the ERC721 interface check is reached
-        vm.prank(owner);
-        miniMart.setWhitelistStatus(address(bogus), true);
 
         MiniMart.Order memory order = MiniMart.Order({
             price: 1 ether,
@@ -656,35 +628,6 @@ contract MiniMartTest is Test {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Unit tests ‑ admin / whitelist
-    // ──────────────────────────────────────────────────────────────────────────
-    function testSetWhitelistStatus() public {
-        // contract is currently NOT whitelisted
-        assertTrue(!miniMart.whitelist(address(otherNft)));
-
-        vm.prank(owner);
-        miniMart.setWhitelistStatus(address(otherNft), true);
-        assertTrue(miniMart.whitelist(address(otherNft)));
-
-        vm.prank(owner);
-        miniMart.setWhitelistStatus(address(otherNft), false);
-        assertTrue(!miniMart.whitelist(address(otherNft)));
-    }
-
-    function testWhitelistStatusAlreadySet() public {
-        // current status is already `true`
-        vm.prank(owner);
-        vm.expectRevert(MiniMart.StatusAlreadySet.selector);
-        miniMart.setWhitelistStatus(address(nft), true);
-    }
-
-    function testSetWhitelistFailsIfNotOwner() public {
-        vm.expectRevert(abi.encodeWithSelector(OwnableUnauthorizedAccount.selector, seller));
-        vm.prank(seller);
-        miniMart.setWhitelistStatus(address(otherNft), true);
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
     // withdrawFees
     // ──────────────────────────────────────────────────────────────────────────
     function testWithdrawFees() public {
@@ -723,18 +666,13 @@ contract MiniMartTest is Test {
         RevertingOwner badOwner = new RevertingOwner();
         MiniMart badMart = new MiniMart(address(badOwner), "Mini", "1");
 
-        // deploy nft & whitelist it
         TestNFT localNft = new TestNFT("uri", seller);
-        vm.prank(address(badOwner));
-        badMart.setWhitelistStatus(address(localNft), true);
 
-        // mint & approve
         vm.prank(seller);
         localNft.mint(seller);
         vm.prank(seller);
         localNft.approve(address(badMart), 0);
 
-        // list order
         MiniMart.Order memory order = MiniMart.Order({
             price: 1 ether,
             tokenId: 0,

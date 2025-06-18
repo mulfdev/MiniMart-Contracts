@@ -44,11 +44,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     /// @param buyer The address of the buyer.
     event OrderFulfilled(bytes32 indexed orderId, address indexed buyer);
 
-    /// @notice Emitted when a contract's whitelist status changes.
-    /// @param nftContract The contract who's status was updated.
-    /// @param allowed If the contract is allowed or not.
-    event WhitelistUpdated(address nftContract, bool allowed);
-
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           ERRORS                           */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
@@ -83,10 +78,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     error MarketplaceNotApproved();
     /// @notice The order value could not be sent to the seller.
     error CouldNotPaySeller();
-    /// @notice The NFT contract is not on the whitelist
-    error NotWhitelisted();
-    /// @notice The NFT contract is already on the whitelist;
-    error StatusAlreadySet();
     /// @notice The buyer couldnt be refunded on purchase;
     error RefundFailed();
     /// @notice The msg.sender for a private order is invalid
@@ -116,14 +107,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         uint256 tokenId;
     }
 
-    /// @notice A struct containing whitelist information for NFT contracts.
-    struct WhitelistInfo {
-        /// @dev The address of the NFT contract.
-        address nftContract;
-        /// @dev Whether the contract is allowed on the whitelist.
-        bool allowed;
-    }
-
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                        STATE VARIABLES                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
@@ -141,9 +124,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
     /// @notice Mapping from a seller's address to their current nonce.
     mapping(address seller => uint64 nonce) public nonces;
-
-    /// @notice Mapping for contract whitelist.
-    mapping(address contractAddress => bool allowed) public whitelist;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         CONSTRUCTOR                        */
@@ -211,7 +191,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         address signer = ECDSA.recover(orderDigest, signature);
         uint64 currentNonce = nonces[signer];
 
-        if (!whitelist[order.nftContract]) revert NotWhitelisted();
         if (order.expiration != 0 && order.expiration <= block.timestamp) revert OrderExpired();
         if (signer != order.seller) revert SignerMustBeSeller();
         if (signer == address(0)) revert ZeroAddress();
@@ -324,35 +303,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         }
     }
 
-    /**
-     * @notice Sets the whitelist status for a single NFT contract.
-     * @dev Only the contract owner can call this function.
-     * @param nftContract The address of the NFT contract to update.
-     * @param allowed The desired whitelist status (true to allow, false to disallow).
-     */
-    function setWhitelistStatus(address nftContract, bool allowed) external onlyOwner {
-        _setWhitelistStatus(nftContract, allowed);
-    }
-
-    /**
-     * @notice Sets the whitelist status for multiple NFT contracts in a single transaction.
-     * @dev Only the contract owner can call this function. Batch size is limited to prevent
-     *      excessive gas usage.
-     * @param whitelistInfo An array of WhitelistInfo structs containing contract addresses and their desired status.
-     */
-    function batchSetWhitelistStatus(WhitelistInfo[] calldata whitelistInfo) external onlyOwner {
-        if (whitelistInfo.length == 0 || whitelistInfo.length > 100) {
-            revert InvalidBatchSize();
-        }
-
-        for (uint8 i = 0; i < whitelistInfo.length;) {
-            _setWhitelistStatus(whitelistInfo[i].nftContract, whitelistInfo[i].allowed);
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                     INTERNAL FUNCTIONS                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
@@ -373,23 +323,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         delete orders[orderHash];
 
         emit OrderRemoved({ orderId: orderHash });
-    }
-
-    /**
-     * @notice Sets the whitelist status for a single NFT contract, controlled by the owner.
-     * @dev Allows the contract owner to add or remove an NFT contract from the whitelist.
-     *      Setting `allowed` to `true` adds the contract, and `false` removes it.
-     * @param nftContract The address of the NFT contract to update.
-     * @param allowed The desired whitelist status (`true` to add/allow, `false` to remove/disallow).
-     */
-    function _setWhitelistStatus(address nftContract, bool allowed) private {
-        if (nftContract == address(0)) revert ZeroAddress();
-
-        if (whitelist[nftContract] == allowed) revert StatusAlreadySet();
-
-        whitelist[nftContract] = allowed;
-
-        emit WhitelistUpdated(nftContract, allowed);
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/

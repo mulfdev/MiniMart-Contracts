@@ -31,8 +31,6 @@ contract DeployLocal is Script, EIP712 {
         TestNFT nft = new TestNFT("https://media.mulf.wtf/testnft-img.png", wallet);
         marketplace = new MiniMart(payable(wallet), "MiniMart", "1");
 
-        marketplace.setWhitelistStatus(address(nft), true);
-
         for (uint256 i = 0; i <= 25; i++) {
             nft.mint(wallet);
 
