@@ -236,7 +236,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             shouldRefund = true;
         }
         // Check for approval changes
-        else if (token.getApproved(order.tokenId) != address(this)) {
+        else if (!token.isApprovedForAll(order.seller, address(this))) {
             shouldRefund = true;
         }
 
