@@ -77,14 +77,11 @@ contract MiniMartTest is Test {
         miniMart = new MiniMart(owner, "MiniMart", "1");
 
         nft = new TestNFT("ipfs://base", seller);
-        otherNft = new TestNFT("ipfs://other", seller);
 
-        vm.prank(seller);
         nft.mint(seller);
-        otherNft.mint(seller);
 
         vm.prank(seller);
-        nft.approve(address(miniMart), TOKEN_ID);
+        nft.setApprovalForAll(address(miniMart), true);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -228,7 +225,7 @@ contract MiniMartTest is Test {
     function testAddOrderFails_MarketplaceNotApproved() public {
         // revoke approval
         vm.prank(seller);
-        nft.approve(address(0), TOKEN_ID);
+        nft.setApprovalForAll(address(miniMart), false);
 
         MiniMart.Order memory order = MiniMart.Order({
             price: 1 ether,
@@ -273,11 +270,8 @@ contract MiniMartTest is Test {
     }
 
     function testAddOrderFails_NotTokenOwner() public {
-        // transfer token away from seller (keep approval)
         vm.prank(seller);
         nft.transferFrom(seller, buyer, TOKEN_ID);
-        vm.prank(buyer);
-        nft.approve(address(miniMart), TOKEN_ID);
 
         MiniMart.Order memory order = MiniMart.Order({
             price: 1 ether,
@@ -288,12 +282,12 @@ contract MiniMartTest is Test {
             expiration: 0,
             nonce: 0
         });
-
         bytes32 digest = miniMart.hashOrder(order);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(sellerPk, digest);
         bytes memory sig = abi.encodePacked(r, s, v);
 
         vm.expectRevert(MiniMart.NotTokenOwner.selector);
+
         miniMart.addOrder(order, sig);
     }
 
@@ -490,7 +484,8 @@ contract MiniMartTest is Test {
 
         // revoke approval
         vm.prank(seller);
-        nft.approve(address(0), TOKEN_ID);
+
+        nft.setApprovalForAll(address(miniMart), false);
 
         uint256 buyerBefore = buyer.balance;
         uint256 contractBefore = address(miniMart).balance;
@@ -621,10 +616,16 @@ contract MiniMartTest is Test {
         }
     }
 
-    function testBatchRemoveFails_InvalidBatchSize() public {
+    function testBatchRemoveFails_InvalidBatchSize_Zero() public {
         bytes32[] memory empty;
         vm.expectRevert(MiniMart.InvalidBatchSize.selector);
         miniMart.batchRemoveOrder(empty);
+    }
+
+    function testBatchRemoveFails_InvalidBatchSize_TooLarge() public {
+        bytes32[] memory tooLarge = new bytes32[](26);
+        vm.expectRevert(MiniMart.InvalidBatchSize.selector);
+        miniMart.batchRemoveOrder(tooLarge);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -671,7 +672,7 @@ contract MiniMartTest is Test {
         vm.prank(seller);
         localNft.mint(seller);
         vm.prank(seller);
-        localNft.approve(address(badMart), 0);
+        localNft.setApprovalForAll(address(badMart), true);
 
         MiniMart.Order memory order = MiniMart.Order({
             price: 1 ether,
