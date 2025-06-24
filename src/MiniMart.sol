@@ -200,7 +200,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         if (!order.nftContract.supportsInterface(type(IERC721).interfaceId)) {
             revert NonERC721Interface();
         }
-        if (token.getApproved(order.tokenId) != address(this)) revert MarketplaceNotApproved();
+        if (!token.isApprovedForAll(order.seller, address(this))) revert MarketplaceNotApproved();
         if (signer != token.ownerOf(order.tokenId)) revert NotTokenOwner();
 
         nonces[signer] = currentNonce + 1;
@@ -225,49 +225,44 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             revert InvalidTaker();
         }
 
+        bool shouldRefund = false;
+
+        // Check for expired orders
         if (order.expiration != 0 && order.expiration <= block.timestamp) {
-            delete orders[orderHash];
-            emit OrderRemoved(orderHash);
-
-            (bool ok,) = msg.sender.call{ value: msg.value }("");
-            if (!ok) revert RefundFailed();
-            return;
+            shouldRefund = true;
+        }
+        // Check for ownership changes
+        else if (token.ownerOf(order.tokenId) != order.seller) {
+            shouldRefund = true;
+        }
+        // Check for approval changes
+        else if (token.getApproved(order.tokenId) != address(this)) {
+            shouldRefund = true;
         }
 
-        if (token.ownerOf(order.tokenId) != order.seller) {
-            delete orders[orderHash];
-            emit OrderRemoved(orderHash);
-
-            (bool ok,) = msg.sender.call{ value: msg.value }("");
-            if (!ok) revert RefundFailed();
-            return;
-        }
-        if (token.getApproved(order.tokenId) != address(this)) {
-            delete orders[orderHash];
-            emit OrderRemoved(orderHash);
-
-            (bool ok,) = msg.sender.call{ value: msg.value }("");
-            if (!ok) revert RefundFailed();
-            return;
-        }
-
+        // Clean up order in all cases
         delete orders[orderHash];
 
-        token.transferFrom(order.seller, msg.sender, order.tokenId);
-
-        uint256 fee = (order.price * FEE_BPS) / 1e4;
-
-        (bool orderPayment,) = order.seller.call{ value: order.price - fee }("");
-        if (!orderPayment) revert CouldNotPaySeller();
-
-        emit OrderFulfilled(orderHash, msg.sender);
+        if (shouldRefund) {
+            // Refund buyer and emit removal event
+            (bool ok,) = msg.sender.call{ value: msg.value }("");
+            if (!ok) revert RefundFailed();
+            emit OrderRemoved(orderHash);
+        } else {
+            // Execute successful trade
+            token.transferFrom(order.seller, msg.sender, order.tokenId);
+            uint256 fee = (order.price * FEE_BPS) / 1e4;
+            (bool orderPayment,) = order.seller.call{ value: order.price - fee }("");
+            if (!orderPayment) revert CouldNotPaySeller();
+            emit OrderFulfilled(orderHash, msg.sender);
+        }
     }
-
     /**
      * @notice Retrieves the details of a specific order.
      * @param orderHash The hash of the order to retrieve.
      * @return An Order struct containing the order details.
      */
+
     function getOrder(bytes32 orderHash) public view returns (Order memory) {
         return orders[orderHash];
     }
@@ -289,13 +284,13 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
      * @param orderHashes An array of order hashes to be removed.
      */
     function batchRemoveOrder(bytes32[] calldata orderHashes) external {
-        uint8 batchSize = uint8(orderHashes.length);
+        uint256 batchSize = orderHashes.length;
 
         if (batchSize == 0 || batchSize > 25) {
             revert InvalidBatchSize();
         }
 
-        for (uint8 i = 0; i < batchSize;) {
+        for (uint256 i = 0; i < batchSize;) {
             _removeOrder(orderHashes[i]);
             unchecked {
                 ++i;
