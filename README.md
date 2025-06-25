@@ -68,7 +68,6 @@ mini-mart
     ```
 
 
-
 ### Security Analysis
 
 The project includes commands for running popular security analysis tools.
