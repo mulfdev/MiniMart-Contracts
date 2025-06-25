@@ -67,21 +67,7 @@ mini-mart
     ETHERSCAN_API_KEY=your_etherscan_api_key
     ```
 
-## Developer Workflow (Makefile)
 
-The `Makefile` provides a convenient interface for common development tasks.
-
-### Core Commands
-
-*   **Lint Contracts:**
-    ```bash
-    make lint
-    ```
-
-*   **Clean Artifacts:**
-    ```bash
-    make clean
-    ```
 
 ### Security Analysis
 
