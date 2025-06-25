@@ -78,7 +78,9 @@ contract MiniMartTest is Test {
 
         nft = new TestNFT("ipfs://base", seller);
 
-        nft.mint(seller);
+        for (uint8 i; i <= 25; i++) {
+            nft.mint(seller);
+        }
 
         vm.prank(seller);
         nft.setApprovalForAll(address(miniMart), true);
@@ -591,7 +593,7 @@ contract MiniMartTest is Test {
         for (uint8 i; i < 3; ++i) {
             MiniMart.Order memory order = MiniMart.Order({
                 price: 0.5 ether + i,
-                tokenId: TOKEN_ID,
+                tokenId: i,
                 nftContract: address(nft),
                 seller: seller,
                 taker: address(0),
@@ -778,7 +780,7 @@ contract MiniMartTest is Test {
         for (uint64 i; i < runs; ++i) {
             MiniMart.Order memory order = MiniMart.Order({
                 price: price,
-                tokenId: TOKEN_ID,
+                tokenId: i,
                 nftContract: address(nft),
                 seller: seller,
                 taker: address(0),
