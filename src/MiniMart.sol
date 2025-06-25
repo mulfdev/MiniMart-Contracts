@@ -114,6 +114,9 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     /// @notice The fee percentage in basis points (e.g., 300 = 3%).
     uint16 public constant FEE_BPS = 300;
 
+    /// @notice Pending fees generated from order sales yet to be withdrawn
+    uint256 public pendingFees;
+
     /// @notice type hash of the order struct for the hashOrder function
     bytes32 public constant ORDER_TYPEHASH = keccak256(
         "Order(address seller,uint96 price,address nftContract,uint64 expiration,address taker,uint64 nonce,uint256 tokenId)"
@@ -206,7 +209,12 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         if (!order.nftContract.supportsInterface(type(IERC721).interfaceId)) {
             revert NonERC721Interface();
         }
-        if (!token.isApprovedForAll(order.seller, address(this))) revert MarketplaceNotApproved();
+        if (
+            token.getApproved(order.tokenId) != address(this)
+                && !token.isApprovedForAll(order.seller, address(this))
+        ) {
+            revert MarketplaceNotApproved();
+        }
         if (signer != token.ownerOf(order.tokenId)) revert NotTokenOwner();
 
         nonces[signer] = currentNonce + 1;
@@ -259,6 +267,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         } else {
             // The order is valid. Fulfill the trade.
             uint256 fee = (order.price * FEE_BPS) / 1e4;
+            pendingFees += fee;
             (bool orderPayment,) = order.seller.call{ value: order.price - fee }("");
             if (!orderPayment) revert CouldNotPaySeller();
 
@@ -341,9 +350,17 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
      * @dev Transfers the entire contract balance to the owner. Reverts if the transfer fails.
      */
     function withdrawFees() external onlyOwner {
-        (bool ok,) = owner().call{ value: address(this).balance }("");
-
-        if (!ok) revert FeeWithdrawlFailed();
+        uint256 amount = pendingFees;
+        if (amount == 0) revert FeeWithdrawlFailed();
+        pendingFees = 0;
+        (bool ok,) = owner().call{ value: amount }("");
+        if (!ok) {
+            pendingFees = amount;
+            revert FeeWithdrawlFailed();
+        }
+        // (bool ok,) = owner().call{ value: address(this).balance }("");
+        //
+        // if (!ok) revert FeeWithdrawlFailed();
     }
 
     function pause() external onlyOwner {
