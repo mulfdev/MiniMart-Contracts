@@ -122,6 +122,10 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     /// @notice Mapping from an order hash to the corresponding Order struct.
     mapping(bytes32 orderHash => Order) public orders;
 
+    /// @notice Mapping from an NFT (contract -> tokenId) to its active order hash.
+    /// @dev This is the crucial addition to prevent multiple active listings for the same NFT.
+    mapping(address => mapping(uint256 => bytes32)) public activeOrderHash;
+
     /// @notice Mapping from a seller's address to their current nonce.
     mapping(address seller => uint64 nonce) public nonces;
 
@@ -186,6 +190,8 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         whenNotPaused
         returns (bytes32 orderDigest)
     {
+        if (activeOrderHash[order.nftContract][order.tokenId] != bytes32(0)) revert AlreadyListed();
+
         IERC721 token = IERC721(order.nftContract);
         orderDigest = hashOrder(order);
         address signer = ECDSA.recover(orderDigest, signature);
@@ -205,15 +211,18 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
         nonces[signer] = currentNonce + 1;
         orders[orderDigest] = order;
+        activeOrderHash[order.nftContract][order.tokenId] = orderDigest;
 
         emit OrderListed(orderDigest, signer, order.nftContract, order.tokenId, order.price);
     }
 
     /**
      * @notice Fulfills an existing order by purchasing the NFT.
-     * @dev Validates the order, handles payment, transfers the NFT, and distributes fees.
-     *      The order is deleted after successful fulfillment.
-     * @param orderHash The hash of the order to fulfill.
+     * @dev This function serves as the main entry point for buyers. It validates that an order is
+     *      active and "fresh" (not expired, seller still owns the NFT, and approval is still valid).
+     *      If the order is fresh, it facilitates the payment and NFT transfer. If the order has become
+     *      stale for any reason, it safely refunds the buyer.
+     * @param orderHash The unique EIP-712 hash of the order to fulfill.
      */
     function fulfillOrder(bytes32 orderHash) external payable nonReentrant whenNotPaused {
         Order memory order = getOrder(orderHash);
@@ -225,37 +234,40 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             revert InvalidTaker();
         }
 
-        bool shouldRefund = false;
-
-        // Check for expired orders
+        // VALIDATE THE ORDER'S CURRENT STATE
+        // Check if the order has become "stale"
+        // (expired, owner changed, market no longer approved)
+        // This determines which path we take: Refund or Fulfill.
         if (order.expiration != 0 && order.expiration <= block.timestamp) {
-            shouldRefund = true;
-        }
-        // Check for ownership changes
-        else if (token.ownerOf(order.tokenId) != order.seller) {
-            shouldRefund = true;
-        }
-        // Check for approval changes
-        else if (!token.isApprovedForAll(order.seller, address(this))) {
-            shouldRefund = true;
-        }
-
-        // Clean up order in all cases
-        delete orders[orderHash];
-
-        if (shouldRefund) {
-            // Refund buyer and emit removal event
+            // The order is expired. Refund the buyer.
+            (bool ok,) = msg.sender.call{ value: msg.value }("");
+            if (!ok) revert RefundFailed();
+            emit OrderRemoved(orderHash);
+        } else if (token.ownerOf(order.tokenId) != order.seller) {
+            // The seller no longer owns the NFT. Refund the buyer.
+            (bool ok,) = msg.sender.call{ value: msg.value }("");
+            if (!ok) revert RefundFailed();
+            emit OrderRemoved(orderHash);
+        } else if (
+            token.getApproved(order.tokenId) != address(this)
+                && !token.isApprovedForAll(order.seller, address(this))
+        ) {
+            // The marketplace is no longer approved. Refund the buyer.
             (bool ok,) = msg.sender.call{ value: msg.value }("");
             if (!ok) revert RefundFailed();
             emit OrderRemoved(orderHash);
         } else {
-            // Execute successful trade
-            token.transferFrom(order.seller, msg.sender, order.tokenId);
+            // The order is valid. Fulfill the trade.
             uint256 fee = (order.price * FEE_BPS) / 1e4;
             (bool orderPayment,) = order.seller.call{ value: order.price - fee }("");
             if (!orderPayment) revert CouldNotPaySeller();
+
+            token.transferFrom(order.seller, msg.sender, order.tokenId);
             emit OrderFulfilled(orderHash, msg.sender);
         }
+
+        delete orders[orderHash];
+        delete activeOrderHash[order.nftContract][order.tokenId];
     }
     /**
      * @notice Retrieves the details of a specific order.
@@ -316,7 +328,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         if (order.seller != msg.sender) revert NotListingCreator();
 
         delete orders[orderHash];
-
+        delete activeOrderHash[order.nftContract][order.tokenId];
         emit OrderRemoved({ orderId: orderHash });
     }
 
