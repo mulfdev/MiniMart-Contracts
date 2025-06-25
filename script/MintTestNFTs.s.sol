@@ -11,11 +11,12 @@ contract MintTestNFTs is Script {
         vm.createSelectFork("base_sepolia");
         address eoaDeployer = msg.sender;
 
-        vm.broadcast(eoaDeployer);
-        TestNFT testNft = new TestNFT("https://media.mulf.wtf/testnft-img.png", msg.sender);
+        TestNFT testNft = TestNFT(0x6E62ab660c7ACD232f17B15b54D8e9F738941cb4);
 
-        for (uint8 i; i < 15; i++) {
-            testNft.mint(0x02F9B04A37b089b5887c491097E62D2111c2BB7F);
+        for (uint8 i; i <= 5; i++) {
+            vm.broadcast(eoaDeployer);
+
+            testNft.mint(0x75A6085Bbc25665B6891EA94475E6120897BA90b);
         }
     }
 }
