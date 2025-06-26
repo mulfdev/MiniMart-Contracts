@@ -15,7 +15,6 @@ contract MintTestNFTs is Script {
 
         for (uint8 i; i <= 5; i++) {
             vm.broadcast(eoaDeployer);
-
             testNft.mint(0x75A6085Bbc25665B6891EA94475E6120897BA90b);
         }
     }
