@@ -12,7 +12,7 @@ contract Deploy is Script {
     function run() external {
         vm.createSelectFork("base_sepolia");
 
-        bytes32 salt = keccak256("af8c16279a3fe618b01cf70aa0d6794324380010b45af2d58716cc688d061417");
+        bytes32 salt = keccak256("af8c16279a3fe618b01cf70aa0d6794324380010b45af2d58716cc688d061416");
         address eoaDeployer = msg.sender;
 
         console.log("Deployer (EOA):", eoaDeployer);
