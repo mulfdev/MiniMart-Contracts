@@ -4,7 +4,7 @@ Mini-Mart is a gas-efficient, signature-based (EIP-712) ERC721 marketplace contr
 
 ## Core Features
 
-*   **On-Chain Order Fulfillment:** A buyer submits the seller's signed order to the contract, and the `fulfillOrder` function atomically handles payment, fee collection, and NFT transfer.
+*   **On-Chain Order Fulfillment:** A buyer fills the seller's signed order to the contract, and the `fulfillOrder` function atomically handles payment, fee collection, and NFT transfer.
 *   **Buyer Protection:** If an order cannot be fulfilled (e.g., the NFT was transferred, approval was revoked, or the listing expired), the buyer's payment is automatically refunded within the same transaction.
 *   **Fixed Platform Fee:** A 3% fee is collected on every successful sale.
 *   **Admin Controls:**
