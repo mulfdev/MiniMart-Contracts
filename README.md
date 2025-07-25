@@ -4,33 +4,14 @@ Mini-Mart is a gas-efficient, signature-based (EIP-712) ERC721 marketplace contr
 
 ## Core Features
 
-*   **Gas-Efficient Listings:** Sellers sign EIP-712 typed data messages off-chain to create sale orders. This means listing an NFT is free (no gas).
-*   **On-Chain Order Fulfillment:** A buyer submits the seller's signed order to the contract, and the `fulfillOrder` function atomically handles payment, fee collection, and NFT transfer.
+*   **On-Chain Order Fulfillment:** A buyer fills the seller's signed order to the contract, and the `fulfillOrder` function atomically handles payment, fee collection, and NFT transfer.
 *   **Buyer Protection:** If an order cannot be fulfilled (e.g., the NFT was transferred, approval was revoked, or the listing expired), the buyer's payment is automatically refunded within the same transaction.
 *   **Fixed Platform Fee:** A 3% fee is collected on every successful sale.
 *   **Admin Controls:**
-    *   **Collection Whitelisting:** The owner can whitelist specific NFT contracts that are allowed to be traded.
     *   **Pausable:** The owner can pause and unpause all trading activity (`addOrder`, `fulfillOrder`) in case of an emergency.
     *   **Fee Withdrawal:** The owner can withdraw all accumulated fees from the contract.
-*   **Batch Operations:** Efficiently remove multiple orders or update multiple whitelist statuses in a single transaction.
 *   **Comprehensive Testing:** The project includes an extensive test suite using Foundry, covering unit tests, negative paths, and fuzz testing.
 
-## Project Structure
-
-```
-mini-mart
-├── Makefile                # Convenient shortcuts for common tasks
-├── broadcast/              # Forge script broadcast outputs
-├── foundry.toml            # Foundry project configuration
-├── script/                 # Deployment scripts
-│   ├── Deploy.s.sol        # Template script for live network deployment
-│   └── DeployLocal.s.sol   # Script for local deployment and setup
-├── src/                    # Core smart contracts
-│   ├── MiniMart.sol        # The main marketplace contract
-│   └── TestNFT.sol         # A mock ERC721 contract for testing
-└── test/                   # Foundry tests
-    └── MiniMart.t.sol      # Comprehensive tests for MiniMart.sol
-```
 
 ## Getting Started
 
@@ -68,22 +49,6 @@ mini-mart
     ```
 
 
-### Security Analysis
-
-The project includes commands for running popular security analysis tools.
-
-*   **Slither (Static Analysis):**
-    Run Slither for automated vulnerability detection and code analysis on the `src` contracts.
-    ```bash
-    make slither
-    ```
-
-*   **Mythril (Symbolic Execution):**
-    Perform symbolic execution analysis on the `MiniMart` contract's deployed bytecode to find security vulnerabilities.
-    ```bash
-    make analyze
-    ```
-
 ### Deployment
 
 The deployment commands require a script file from the `script/` directory to be passed as an argument.
@@ -120,9 +85,5 @@ This is the core contract. It implements the EIP-712 standard to create verifiab
 
 **Order Flow:**
 1.  **Seller:** Creates an `Order` struct with sale details (price, tokenId, etc.) and signs its EIP-712 hash.
-2.  **Relayer/Buyer:** Submits the `Order` struct and the seller's `signature` to the `addOrder()` function. The contract verifies the signature and lists the order.
+2.  **Buyer:** Submits the `Order` struct and the seller's `signature` to the `addOrder()` function. The contract verifies the signature and lists the order.
 3.  **Buyer:** Calls `fulfillOrder()` with the correct `msg.value` to purchase the NFT. The contract verifies all conditions (e.g., ownership, approval), transfers the NFT to the buyer, and pays the seller (minus fees).
-
-### `TestNFT.sol`
-
-A simple ERC721 contract used for deployment scripts and tests. It allows for easy minting of NFTs to a specified address.
