@@ -358,9 +358,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             pendingFees = amount;
             revert FeeWithdrawlFailed();
         }
-        // (bool ok,) = owner().call{ value: address(this).balance }("");
-        //
-        // if (!ok) revert FeeWithdrawlFailed();
     }
 
     function pause() external onlyOwner {
