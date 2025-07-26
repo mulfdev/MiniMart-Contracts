@@ -17,6 +17,8 @@ import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.s
 contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     using ERC165Checker for address;
 
+    uint256 private constant MAX_BATCH_SIZE = 25;
+
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           EVENTS                           */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
@@ -72,22 +74,24 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     error InvalidBatchSize();
     /// @notice The contract does not have pending fees for the owner to collect.
     error FeeWithdrawlFailed();
+    /// @notice The contract does not have free floating ether to withdraw
+    error WithdrawFailed();
     /// @notice The value of a transaction was too wrong for the order.
     error OrderPriceWrong();
     /// @notice The marketplace contract is not approve for the given token id.
     error MarketplaceNotApproved();
     /// @notice The order value could not be sent to the seller.
     error CouldNotPaySeller();
-    /// @notice The buyer couldnt be refunded on purchase;
+    /// @notice The buyer couldnt be refunded on purchase.
     error RefundFailed();
-    /// @notice The msg.sender for a private order is invalid
-    error InvalidTaker();
-    /// @notice generic error for fallback function
+    /// @notice generic error for fallback function.
     error CallNotSupported();
-    /// @notice Order fulfillment failed
+    /// @notice Order fulfillment failed.
     error OrderFulfillmentFailed();
-    /// @notice Order removal failed
+    /// @notice Order removal failed.
     error OrderRemovalFailed();
+    /// @notice Duplicate order hash provided.
+    error DuplicateOrderHash();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
@@ -292,10 +296,18 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         uint256 batchSize = orderHashes.length;
         if (batchSize == 0 || batchSize > 25) revert InvalidBatchSize();
 
-        uint256 totalRequired = 0;
         for (uint256 i = 0; i < batchSize; ++i) {
-            Order memory order = getOrder(orderHashes[i]);
-            totalRequired += order.price;
+            for (uint256 j = i + 1; j < batchSize; ++j) {
+                if (orderHashes[i] == orderHashes[j]) revert DuplicateOrderHash();
+            }
+        }
+
+        Order[] memory orderCache = new Order[](batchSize);
+        uint256 totalRequired = 0;
+
+        for (uint256 i = 0; i < batchSize; ++i) {
+            orderCache[i] = getOrder(orderHashes[i]);
+            totalRequired += orderCache[i].price;
         }
 
         if (msg.value != totalRequired) revert OrderPriceWrong();
@@ -305,11 +317,10 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
         for (uint256 i = 0; i < batchSize; ++i) {
             results[i].orderHash = orderHashes[i];
-            Order memory order = getOrder(orderHashes[i]);
-            results[i].success = _fulfillOrderInternal(orderHashes[i], order.price);
+            results[i].success = _fulfillOrderInternal(orderHashes[i], orderCache[i].price);
 
             if (!results[i].success) {
-                totalRefund += order.price;
+                totalRefund += orderCache[i].price;
             }
         }
 
@@ -330,6 +341,12 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             pendingFees = amount;
             revert FeeWithdrawlFailed();
         }
+    }
+
+    function withdrawAll() external onlyOwner {
+        uint256 amount = address(this).balance;
+        (bool ok,) = owner().call{ value: amount }("");
+        if (!ok) revert WithdrawFailed();
     }
 
     function pause() external onlyOwner {
@@ -387,10 +404,18 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             (bool orderPayment,) = order.seller.call{ value: order.price - fee }("");
             if (!orderPayment) {
                 pendingFees -= fee;
+                delete orders[orderHash];
+                delete activeOrderHash[order.nftContract][order.tokenId];
+                emit OrderRemoved(orderHash);
                 return false;
             }
 
             token.transferFrom(order.seller, msg.sender, order.tokenId);
+
+            if (token.ownerOf(order.tokenId) != msg.sender) {
+                pendingFees -= fee;
+                return false;
+            }
 
             delete orders[orderHash];
             delete activeOrderHash[order.nftContract][order.tokenId];
