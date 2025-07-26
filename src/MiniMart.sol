@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity 0.8.30;
 
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { EIP712 } from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title MiniMart
- * @author mulf: https://github.com/mulfdev
+ * @author mulf
  * @notice A lightweight, signature-based ERC721 marketplace.
  */
 contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
@@ -84,6 +84,10 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     error InvalidTaker();
     /// @notice generic error for fallback function
     error CallNotSupported();
+    /// @notice Order fulfillment failed
+    error OrderFulfillmentFailed();
+    /// @notice Order removal failed
+    error OrderRemovalFailed();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
@@ -105,6 +109,14 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         uint64 nonce;
         /// @dev The ID of the token being sold.
         uint256 tokenId;
+    }
+
+    /// @notice A struct representing the result of a batch order operation
+    struct OrderResult {
+        /// @dev hash of the order from the operation
+        bytes32 orderHash;
+        /// @dev if the operation was successful
+        bool success;
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -151,12 +163,10 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     /*                    EXTERNAL FUNCTIONS                      */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    /**
-     * @notice Hashes an order struct according to the EIP-712 standard.
-     * @dev Computes the EIP-712 typed data hash for the given order.
-     * @param order The order to hash.
-     * @return The EIP-712 typed data hash.
-     */
+    /// @notice Hashes an order struct according to the EIP-712 standard.
+    /// @dev Computes the EIP-712 typed data hash for the given order.
+    /// @param order The order to hash.
+    /// @return The EIP-712 typed data hash.
     function hashOrder(Order calldata order) public view returns (bytes32) {
         bytes32 structHash = keccak256(
             abi.encode(
@@ -179,14 +189,11 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         return _domainSeparatorV4();
     }
 
-    /**
-     * @notice Adds a new order to the marketplace after verifying the signature.
-     * @dev Validates the order details, checks ownership, and ensures the order is unique.
-     *      Increments the seller's nonce upon successful listing.
-     * @param order The Order struct containing the listing details.
-     * @param signature The EIP-712 signature of the order hash from the seller.
-     * @return orderDigest The unique hash of the newly created order.
-     */
+    /// @notice Adds a new order to the marketplace with signature verification.
+    /// @dev Validates the order, signature, and creates a new listing.
+    /// @param order The order struct containing all order details.
+    /// @param signature The EIP-712 signature from the seller.
+    /// @return orderDigest The hash of the created order.
     function addOrder(Order calldata order, bytes calldata signature)
         external
         nonReentrant
@@ -224,131 +231,96 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         emit OrderListed(orderDigest, signer, order.nftContract, order.tokenId, order.price);
     }
 
-    /**
-     * @notice Fulfills an existing order by purchasing the NFT.
-     * @dev This function serves as the main entry point for buyers. It validates that an order is
-     *      active and "fresh" (not expired, seller still owns the NFT, and approval is still valid).
-     *      If the order is fresh, it facilitates the payment and NFT transfer. If the order has become
-     *      stale for any reason, it safely refunds the buyer.
-     * @param orderHash The unique EIP-712 hash of the order to fulfill.
-     */
-    function fulfillOrder(bytes32 orderHash) external payable nonReentrant whenNotPaused {
-        Order memory order = getOrder(orderHash);
-        IERC721 token = IERC721(order.nftContract);
-
-        if (order.seller == address(0)) revert OrderNotFound();
-        if (msg.value != order.price) revert OrderPriceWrong();
-        if (order.taker != address(0) && order.taker != msg.sender) {
-            revert InvalidTaker();
+    /// @notice Fulfills an order by purchasing the NFT at the listed price.
+    /// @dev Handles payment, fee calculation, and NFT transfer.
+    /// @param orderHash The hash of the order to fulfill.
+    function fulfillOrder(bytes32 orderHash) public payable nonReentrant whenNotPaused {
+        bool success = _fulfillOrderInternal(orderHash, msg.value);
+        if (!success) {
+            (bool refunded,) = msg.sender.call{ value: msg.value }("");
+            if (!refunded) revert RefundFailed();
+            revert OrderFulfillmentFailed();
         }
-
-        // VALIDATE THE ORDER'S CURRENT STATE
-        // Check if the order has become "stale"
-        // (expired, owner changed, market no longer approved)
-        // This determines which path we take: Refund or Fulfill.
-        if (order.expiration != 0 && order.expiration <= block.timestamp) {
-            // The order is expired. Refund the buyer.
-            (bool ok,) = msg.sender.call{ value: msg.value }("");
-            if (!ok) revert RefundFailed();
-            emit OrderRemoved(orderHash);
-        } else if (token.ownerOf(order.tokenId) != order.seller) {
-            // The seller no longer owns the NFT. Refund the buyer.
-            (bool ok,) = msg.sender.call{ value: msg.value }("");
-            if (!ok) revert RefundFailed();
-            emit OrderRemoved(orderHash);
-        } else if (
-            token.getApproved(order.tokenId) != address(this)
-                && !token.isApprovedForAll(order.seller, address(this))
-        ) {
-            // The marketplace is no longer approved. Refund the buyer.
-            (bool ok,) = msg.sender.call{ value: msg.value }("");
-            if (!ok) revert RefundFailed();
-            emit OrderRemoved(orderHash);
-        } else {
-            // The order is valid. Fulfill the trade.
-            uint256 fee = (order.price * FEE_BPS) / 1e4;
-            pendingFees += fee;
-            (bool orderPayment,) = order.seller.call{ value: order.price - fee }("");
-            if (!orderPayment) revert CouldNotPaySeller();
-
-            token.transferFrom(order.seller, msg.sender, order.tokenId);
-            emit OrderFulfilled(orderHash, msg.sender);
-        }
-
-        delete orders[orderHash];
-        delete activeOrderHash[order.nftContract][order.tokenId];
     }
-    /**
-     * @notice Retrieves the details of a specific order.
-     * @param orderHash The hash of the order to retrieve.
-     * @return An Order struct containing the order details.
-     */
 
+    /// @notice Retrieves the details of a specific order.
+    /// @param orderHash The hash of the order to retrieve.
+    /// @return An Order struct containing the order details.
     function getOrder(bytes32 orderHash) public view returns (Order memory) {
         return orders[orderHash];
     }
 
-    /**
-     * @notice Removes a listed NFT sell order.
-     * @dev Reverts if the order doesn't exist or the caller is not its creator.
-     * @param orderHash The EIP‑712 hash of the order to remove.
-     */
-    function removeOrder(bytes32 orderHash) external {
-        _removeOrder(orderHash);
+    /// @notice Removes an order from the marketplace.
+    /// @dev Only the order creator can remove their own order.
+    /// @param orderHash The hash of the order to remove.
+    function removeOrder(bytes32 orderHash) public nonReentrant whenNotPaused {
+        bool success = _removeOrderInternal(orderHash);
+        if (!success) revert OrderRemovalFailed();
     }
 
-    /**
-     * @notice Removes multiple orders in a single transaction.
-     * @dev The caller must be the creator of all orders in the batch.
-     *      Batch size is limited to prevent excessive gas usage. Reverts if
-     *      any order in the batch does not exist or was not created by the caller.
-     * @param orderHashes An array of order hashes to be removed.
-     */
-    function batchRemoveOrder(bytes32[] calldata orderHashes) external {
+    /// @notice Removes multiple orders in a single transaction.
+    /// @dev Batch operation for removing orders, limited to 25 orders per transaction.
+    /// @param orderHashes Array of order hashes to remove.
+    /// @return results Array of OrderResult structs indicating success/failure for each order.
+    function batchRemoveOrder(bytes32[] calldata orderHashes)
+        external
+        nonReentrant
+        whenNotPaused
+        returns (OrderResult[] memory results)
+    {
         uint256 batchSize = orderHashes.length;
+        if (batchSize == 0 || batchSize > 25) revert InvalidBatchSize();
 
-        if (batchSize == 0 || batchSize > 25) {
-            revert InvalidBatchSize();
+        results = new OrderResult[](batchSize);
+        for (uint256 i = 0; i < batchSize; ++i) {
+            results[i].orderHash = orderHashes[i];
+            results[i].success = _removeOrderInternal(orderHashes[i]);
+        }
+    }
+
+    /// @notice Fulfills multiple orders in a single transaction.
+    /// @dev Batch operation for fulfilling orders, limited to 25 orders per transaction.
+    /// @param orderHashes Array of order hashes to fulfill.
+    /// @return results Array of OrderResult structs indicating success/failure for each order.
+    function batchfulfillOrder(bytes32[] calldata orderHashes)
+        external
+        payable
+        nonReentrant
+        whenNotPaused
+        returns (OrderResult[] memory results)
+    {
+        uint256 batchSize = orderHashes.length;
+        if (batchSize == 0 || batchSize > 25) revert InvalidBatchSize();
+
+        uint256 totalRequired = 0;
+        for (uint256 i = 0; i < batchSize; ++i) {
+            Order memory order = getOrder(orderHashes[i]);
+            totalRequired += order.price;
         }
 
-        for (uint256 i = 0; i < batchSize;) {
-            _removeOrder(orderHashes[i]);
-            unchecked {
-                ++i;
+        if (msg.value != totalRequired) revert OrderPriceWrong();
+
+        results = new OrderResult[](batchSize);
+        uint256 totalRefund = 0;
+
+        for (uint256 i = 0; i < batchSize; ++i) {
+            results[i].orderHash = orderHashes[i];
+            Order memory order = getOrder(orderHashes[i]);
+            results[i].success = _fulfillOrderInternal(orderHashes[i], order.price);
+
+            if (!results[i].success) {
+                totalRefund += order.price;
             }
         }
+
+        if (totalRefund > 0) {
+            (bool refunded,) = msg.sender.call{ value: totalRefund }("");
+            if (!refunded) revert RefundFailed();
+        }
     }
 
-    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
-    /*                     INTERNAL FUNCTIONS                     */
-    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
-
-    /**
-     * @dev The internal logic for removing a single order from the marketplace.
-     *      This function is called by `removeOrder` and `batchRemoveOrder`.
-     *      It performs the necessary checks to ensure the order exists and that
-     *      the caller is the original seller before deleting the order from storage.
-     * @param orderHash The unique EIP-712 hash of the order to be removed.
-     */
-    function _removeOrder(bytes32 orderHash) private {
-        Order memory order = orders[orderHash];
-
-        if (order.seller == address(0)) revert OrderNotFound();
-        if (order.seller != msg.sender) revert NotListingCreator();
-
-        delete orders[orderHash];
-        delete activeOrderHash[order.nftContract][order.tokenId];
-        emit OrderRemoved({ orderId: orderHash });
-    }
-
-    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
-    /*                      ADMIN FUNCTIONS                       */
-    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
-
-    /**
-     * @notice Allows the owner to withdraw accumulated fees from the contract.
-     * @dev Transfers the entire contract balance to the owner. Reverts if the transfer fails.
-     */
+    /// @notice Allows the owner to withdraw accumulated fees from the contract.
+    /// @dev Transfers the entire pending fee balance to the owner. Reverts if the transfer fails.
     function withdrawFees() external onlyOwner {
         uint256 amount = pendingFees;
         if (amount == 0) revert FeeWithdrawlFailed();
@@ -368,13 +340,78 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         _unpause();
     }
 
-    /**
-     * @notice Allows the contract to receive ETH directly.
-     * @dev This can be used for donations or other direct payments to the contract.
-     */
     receive() external payable { }
 
     fallback() external payable {
         revert CallNotSupported();
+    }
+
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                      INTERNAL FUNCTIONS                    */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    /// @notice Internal function to fulfill an order.
+    /// @dev Handles all validation, payment processing, and NFT transfer logic.
+    /// @param orderHash The hash of the order to fulfill.
+    /// @param value The amount of ETH sent with the transaction.
+    /// @return success Whether the order fulfillment was successful.
+    function _fulfillOrderInternal(bytes32 orderHash, uint256 value) internal returns (bool) {
+        Order memory order = getOrder(orderHash);
+        IERC721 token = IERC721(order.nftContract);
+
+        if (order.seller == address(0)) return false;
+        if (value != order.price) return false;
+        if (order.taker != address(0) && order.taker != msg.sender) return false;
+
+        if (order.expiration != 0 && order.expiration <= block.timestamp) {
+            delete orders[orderHash];
+            delete activeOrderHash[order.nftContract][order.tokenId];
+            emit OrderRemoved(orderHash);
+            return false;
+        } else if (token.ownerOf(order.tokenId) != order.seller) {
+            delete orders[orderHash];
+            delete activeOrderHash[order.nftContract][order.tokenId];
+            emit OrderRemoved(orderHash);
+            return false;
+        } else if (
+            token.getApproved(order.tokenId) != address(this)
+                && !token.isApprovedForAll(order.seller, address(this))
+        ) {
+            delete orders[orderHash];
+            delete activeOrderHash[order.nftContract][order.tokenId];
+            emit OrderRemoved(orderHash);
+            return false;
+        } else {
+            uint256 fee = (order.price * FEE_BPS) / 1e4;
+            pendingFees += fee;
+            (bool orderPayment,) = order.seller.call{ value: order.price - fee }("");
+            if (!orderPayment) {
+                pendingFees -= fee;
+                return false;
+            }
+
+            token.transferFrom(order.seller, msg.sender, order.tokenId);
+
+            delete orders[orderHash];
+            delete activeOrderHash[order.nftContract][order.tokenId];
+            emit OrderFulfilled(orderHash, msg.sender);
+            return true;
+        }
+    }
+
+    /// @notice Internal function to remove an order from the marketplace.
+    /// @dev Validates that the caller is the order creator and removes the order.
+    /// @param orderHash The hash of the order to remove.
+    /// @return success Whether the order removal was successful.
+    function _removeOrderInternal(bytes32 orderHash) internal returns (bool) {
+        Order memory order = orders[orderHash];
+
+        if (order.seller == address(0)) return false;
+        if (order.seller != msg.sender) return false;
+
+        delete orders[orderHash];
+        delete activeOrderHash[order.nftContract][order.tokenId];
+        emit OrderRemoved(orderHash);
+        return true;
     }
 }
