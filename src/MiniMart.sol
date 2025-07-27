@@ -273,7 +273,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         returns (OrderResult[] memory results)
     {
         uint256 batchSize = orderHashes.length;
-        if (batchSize == 0 || batchSize > 25) revert InvalidBatchSize();
+        if (batchSize == 0 || batchSize > MAX_BATCH_SIZE) revert InvalidBatchSize();
 
         results = new OrderResult[](batchSize);
         for (uint256 i = 0; i < batchSize; ++i) {
@@ -294,7 +294,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         returns (OrderResult[] memory results)
     {
         uint256 batchSize = orderHashes.length;
-        if (batchSize == 0 || batchSize > 25) revert InvalidBatchSize();
+        if (batchSize == 0 || batchSize > MAX_BATCH_SIZE) revert InvalidBatchSize();
 
         for (uint256 i = 0; i < batchSize; ++i) {
             for (uint256 j = i + 1; j < batchSize; ++j) {
