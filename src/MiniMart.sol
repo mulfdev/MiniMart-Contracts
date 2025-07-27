@@ -24,11 +24,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /// @notice Emitted when a new order is successfully listed.
-    /// @param orderId The unique hash of the order.
-    /// @param seller The address of the seller.
-    /// @param nftContract The address of the NFT contract.
-    /// @param tokenId The ID of the token being listed.
-    /// @param price The price of the token in wei.
     event OrderListed(
         bytes32 indexed orderId,
         address indexed seller,
@@ -38,60 +33,37 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     );
 
     /// @notice Emitted when an order is removed from the marketplace.
-    /// @param orderId The unique hash of the removed order.
     event OrderRemoved(bytes32 indexed orderId);
 
     /// @notice Emitted when an order is successfully fulfilled.
-    /// @param orderId The unique hash of the fulfilled order.
-    /// @param buyer The address of the buyer.
     event OrderFulfilled(bytes32 indexed orderId, address indexed buyer);
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           ERRORS                           */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    /// @notice The signer of the order must be the seller.
     error SignerMustBeSeller();
-    /// @notice The provided address cannot be the zero address.
     error ZeroAddress();
-    /// @notice The order has already been listed.
     error AlreadyListed();
-    /// @notice The order has expired.
     error OrderExpired();
-    /// @notice The provided nonce is incorrect.
     error NonceIncorrect();
-    /// @notice The order price is below the minimum threshold.
     error OrderPriceTooLow();
-    /// @notice The contract does not support the ERC721 interface.
     error NonERC721Interface();
-    /// @notice The caller is not the creator of the listing.
     error NotListingCreator();
-    /// @notice The seller is not the owner of the token.
     error NotTokenOwner();
-    /// @notice The specified order was not found.
     error OrderNotFound();
-    /// @notice The number of orders in a batch operation is invalid.
     error InvalidBatchSize();
-    /// @notice The contract does not have pending fees for the owner to collect.
     error FeeWithdrawlFailed();
-    /// @notice The contract does not have free floating ether to withdraw
     error WithdrawFailed();
-    /// @notice The value of a transaction was too wrong for the order.
     error OrderPriceWrong();
-    /// @notice The marketplace contract is not approve for the given token id.
     error MarketplaceNotApproved();
-    /// @notice The order value could not be sent to the seller.
-    error CouldNotPaySeller();
-    /// @notice The buyer couldnt be refunded on purchase.
     error RefundFailed();
-    /// @notice generic error for fallback function.
     error CallNotSupported();
-    /// @notice Order fulfillment failed.
     error OrderFulfillmentFailed();
-    /// @notice Order removal failed.
     error OrderRemovalFailed();
-    /// @notice Duplicate order hash provided.
     error DuplicateOrderHash();
+    error ClaimFailed();
+    error NoProceedsToClaim();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
@@ -99,27 +71,18 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
     /// @notice A struct representing a sell order for an NFT.
     struct Order {
-        /// @dev The address of the seller.
         address seller;
-        /// @dev The price of the NFT in wei.
         uint96 price;
-        /// @dev The contract address of the NFT.
         address nftContract;
-        /// @dev The Unix timestamp (seconds) when the order expires. 0 means no expiration.
         uint64 expiration;
-        /// @dev The address of the intended buyer for a private sale. If set to address(0), the order is public.
         address taker;
-        /// @dev The seller's nonce for this order, used to prevent replay attacks.
         uint64 nonce;
-        /// @dev The ID of the token being sold.
         uint256 tokenId;
     }
 
     /// @notice A struct representing the result of a batch order operation
     struct OrderResult {
-        /// @dev hash of the order from the operation
         bytes32 orderHash;
-        /// @dev if the operation was successful
         bool success;
     }
 
@@ -142,11 +105,13 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     mapping(bytes32 orderHash => Order) public orders;
 
     /// @notice Mapping from an NFT (contract -> tokenId) to its active order hash.
-    /// @dev This is the crucial addition to prevent multiple active listings for the same NFT.
     mapping(address => mapping(uint256 => bytes32)) public activeOrderHash;
 
     /// @notice Mapping from a seller's address to their current nonce.
     mapping(address seller => uint64 nonce) public nonces;
+
+    /// @notice Mapping of proceeds from sales that are claimable.
+    mapping(address => uint256) public claimableProceeds;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         CONSTRUCTOR                        */
@@ -330,8 +295,20 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         }
     }
 
+    function claimProceeds() external nonReentrant {
+        uint256 amount = claimableProceeds[msg.sender];
+        if (amount == 0) revert NoProceedsToClaim();
+
+        claimableProceeds[msg.sender] = 0;
+
+        (bool success,) = msg.sender.call{ value: amount }("");
+        if (!success) {
+            claimableProceeds[msg.sender] = amount;
+            revert ClaimFailed();
+        }
+    }
+
     /// @notice Allows the owner to withdraw accumulated fees from the contract.
-    /// @dev Transfers the entire pending fee balance to the owner. Reverts if the transfer fails.
     function withdrawFees() external onlyOwner {
         uint256 amount = pendingFees;
         if (amount == 0) revert FeeWithdrawlFailed();
@@ -341,12 +318,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             pendingFees = amount;
             revert FeeWithdrawlFailed();
         }
-    }
-
-    function withdrawAll() external onlyOwner {
-        uint256 amount = address(this).balance;
-        (bool ok,) = owner().call{ value: amount }("");
-        if (!ok) revert WithdrawFailed();
     }
 
     function pause() external onlyOwner {
@@ -399,26 +370,22 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             emit OrderRemoved(orderHash);
             return false;
         } else {
-            uint256 fee = (order.price * FEE_BPS) / 1e4;
-            pendingFees += fee;
-            (bool orderPayment,) = order.seller.call{ value: order.price - fee }("");
-            if (!orderPayment) {
-                pendingFees -= fee;
+            token.transferFrom(order.seller, msg.sender, order.tokenId);
+
+            if (token.ownerOf(order.tokenId) != msg.sender) {
                 delete orders[orderHash];
                 delete activeOrderHash[order.nftContract][order.tokenId];
                 emit OrderRemoved(orderHash);
                 return false;
             }
 
-            token.transferFrom(order.seller, msg.sender, order.tokenId);
-
-            if (token.ownerOf(order.tokenId) != msg.sender) {
-                pendingFees -= fee;
-                return false;
-            }
+            uint256 fee = (order.price * FEE_BPS) / 1e4;
+            pendingFees += fee;
+            claimableProceeds[order.seller] += order.price - fee;
 
             delete orders[orderHash];
             delete activeOrderHash[order.nftContract][order.tokenId];
+
             emit OrderFulfilled(orderHash, msg.sender);
             return true;
         }
