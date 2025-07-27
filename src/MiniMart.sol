@@ -60,7 +60,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     error OrderNotFound();
     error InvalidBatchSize();
     error FeeWithdrawlFailed();
-    error WithdrawFailed();
     error OrderPriceWrong();
     error MarketplaceNotApproved();
     error RefundFailed();
@@ -233,6 +232,10 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         if (!success) revert OrderRemovalFailed();
     }
 
+    /// @notice Removes multiple orders in a single transaction.
+    /// @dev Batch operation for removing orders, limited to 25 orders per transaction.
+    /// @param orderHashes Array of order hashes to remove.
+    /// @return results Array of OrderResult structs indicating success/failure for each order.
     function batchRemoveOrder(bytes32[] calldata orderHashes)
         external
         nonReentrant
@@ -242,10 +245,23 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         uint256 batchSize = orderHashes.length;
         if (batchSize == 0 || batchSize > MAX_BATCH_SIZE) revert InvalidBatchSize();
 
+        // Check for duplicates
+        for (uint256 i = 0; i < batchSize; ++i) {
+            for (uint256 j = i + 1; j < batchSize; ++j) {
+                if (orderHashes[i] == orderHashes[j]) revert DuplicateOrderHash();
+            }
+        }
+
+        // Create order cache to avoid redundant storage reads
+        Order[] memory orderCache = new Order[](batchSize);
+        for (uint256 i = 0; i < batchSize; ++i) {
+            orderCache[i] = getOrder(orderHashes[i]);
+        }
+
         results = new OrderResult[](batchSize);
         for (uint256 i = 0; i < batchSize; ++i) {
             results[i].orderHash = orderHashes[i];
-            results[i].success = _removeOrderInternal(orderHashes[i]);
+            results[i].success = _removeOrderInternal(orderHashes[i], orderCache[i]);
         }
     }
 
@@ -302,6 +318,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         }
     }
 
+    /// @notice Function to call for seller to claim sales proceeds.
     function claimProceeds() external nonReentrant {
         uint256 amount = claimableProceeds[msg.sender];
         if (amount == 0) revert NoProceedsToClaim();
