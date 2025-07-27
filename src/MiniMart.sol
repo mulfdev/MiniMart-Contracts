@@ -233,10 +233,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         if (!success) revert OrderRemovalFailed();
     }
 
-    /// @notice Removes multiple orders in a single transaction.
-    /// @dev Batch operation for removing orders, limited to 25 orders per transaction.
-    /// @param orderHashes Array of order hashes to remove.
-    /// @return results Array of OrderResult structs indicating success/failure for each order.
     function batchRemoveOrder(bytes32[] calldata orderHashes)
         external
         nonReentrant
@@ -257,6 +253,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     /// @dev Batch operation for fulfilling orders, limited to MAX_BATCH_SIZE orders per transaction.
     /// @param orderHashes Array of order hashes to fulfill.
     /// @return results Array of OrderResult structs indicating success/failure for each order.
+
     function batchfulfillOrder(bytes32[] calldata orderHashes)
         external
         payable
@@ -401,19 +398,18 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         }
     }
 
-    /// @notice Original internal function for single order fulfillment.
+    /// @notice internal function for single order fulfillment.
     function _fulfillOrderInternal(bytes32 orderHash, uint256 value) internal returns (bool) {
         Order memory order = getOrder(orderHash);
         return _fulfillOrderInternal(orderHash, order, value);
     }
 
-    /// @notice Internal function to remove an order from the marketplace.
-    /// @dev Validates that the caller is the order creator and removes the order.
+    /// @notice Internal function to remove an order using pre-loaded order data.
+    /// @dev Optimized version for batch operations to avoid redundant storage reads.
     /// @param orderHash The hash of the order to remove.
+    /// @param order Pre-loaded order data from memory.
     /// @return success Whether the order removal was successful.
-    function _removeOrderInternal(bytes32 orderHash) internal returns (bool) {
-        Order memory order = orders[orderHash];
-
+    function _removeOrderInternal(bytes32 orderHash, Order memory order) internal returns (bool) {
         if (order.seller == address(0)) return false;
         if (order.seller != msg.sender) return false;
 
@@ -421,5 +417,14 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         delete activeOrderHash[order.nftContract][order.tokenId];
         emit OrderRemoved(orderHash);
         return true;
+    }
+
+    /// @notice Internal function to remove an order from the marketplace.
+    /// @dev Validates that the caller is the order creator and removes the order.
+    /// @param orderHash The hash of the order to remove.
+    /// @return success Whether the order removal was successful.
+    function _removeOrderInternal(bytes32 orderHash) internal returns (bool) {
+        Order memory order = getOrder(orderHash);
+        return _removeOrderInternal(orderHash, order);
     }
 }
