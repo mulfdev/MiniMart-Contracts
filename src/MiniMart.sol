@@ -57,7 +57,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     error NonERC721Interface();
     error NotListingCreator();
     error NotTokenOwner();
-    error OrderNotFound();
     error InvalidBatchSize();
     error FeeWithdrawlFailed();
     error OrderPriceWrong();
@@ -69,6 +68,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     error DuplicateOrderHash();
     error ClaimFailed();
     error NoProceedsToClaim();
+    error AddressIsNotContract();
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           STRUCTS                          */
@@ -76,13 +76,13 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
     /// @notice A struct representing a sell order for an NFT.
     struct Order {
+        uint256 tokenId;
         address seller;
         uint96 price;
         address nftContract;
         uint64 expiration;
         address taker;
         uint64 nonce;
-        uint256 tokenId;
     }
 
     /// @notice A struct representing the result of a batch order operation
@@ -103,7 +103,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
     /// @notice type hash of the order struct for the hashOrder function
     bytes32 public constant ORDER_TYPEHASH = keccak256(
-        "Order(address seller,uint96 price,address nftContract,uint64 expiration,address taker,uint64 nonce,uint256 tokenId)"
+        "Order(uint256 tokenId,address seller,uint96 price,address nftContract,uint64 expiration,address taker,uint64 nonce)"
     );
 
     /// @notice Mapping from an order hash to the corresponding Order struct.
@@ -141,17 +141,18 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     /// @dev Computes the EIP-712 typed data hash for the given order.
     /// @param order The order to hash.
     /// @return The EIP-712 typed data hash.
+
     function hashOrder(Order calldata order) public view returns (bytes32) {
         bytes32 structHash = keccak256(
             abi.encode(
                 ORDER_TYPEHASH,
+                order.tokenId,
                 order.seller,
                 order.price,
                 order.nftContract,
                 order.expiration,
                 order.taker,
-                order.nonce,
-                order.tokenId
+                order.nonce
             )
         );
         return _hashTypedDataV4(structHash);
@@ -187,6 +188,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         if (order.price < 1e13) revert OrderPriceTooLow();
         if (orders[orderDigest].seller != address(0)) revert AlreadyListed();
         if (order.nonce != currentNonce) revert NonceIncorrect();
+        if (order.nftContract.code.length == 0) revert AddressIsNotContract();
         if (!order.nftContract.supportsInterface(type(IERC721).interfaceId)) {
             revert NonERC721Interface();
         }
@@ -213,7 +215,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         if (!success) {
             (bool refunded,) = msg.sender.call{ value: msg.value }("");
             if (!refunded) revert RefundFailed();
-            revert OrderFulfillmentFailed();
         }
     }
 
@@ -245,23 +246,16 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         uint256 batchSize = orderHashes.length;
         if (batchSize == 0 || batchSize > MAX_BATCH_SIZE) revert InvalidBatchSize();
 
-        // Check for duplicates
         for (uint256 i = 0; i < batchSize; ++i) {
             for (uint256 j = i + 1; j < batchSize; ++j) {
                 if (orderHashes[i] == orderHashes[j]) revert DuplicateOrderHash();
             }
         }
 
-        // Create order cache to avoid redundant storage reads
-        Order[] memory orderCache = new Order[](batchSize);
-        for (uint256 i = 0; i < batchSize; ++i) {
-            orderCache[i] = getOrder(orderHashes[i]);
-        }
-
         results = new OrderResult[](batchSize);
         for (uint256 i = 0; i < batchSize; ++i) {
             results[i].orderHash = orderHashes[i];
-            results[i].success = _removeOrderInternal(orderHashes[i], orderCache[i]);
+            results[i].success = _removeOrderInternal(orderHashes[i]);
         }
     }
 
@@ -399,7 +393,6 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             emit OrderRemoved(orderHash);
             return false;
         } else {
-            // [Same fulfillment logic as before]
             uint256 fee = (order.price * FEE_BPS) / 1e4;
             uint256 sellerProceeds = order.price - fee;
 
@@ -409,6 +402,8 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             delete activeOrderHash[order.nftContract][order.tokenId];
 
             token.transferFrom(order.seller, msg.sender, order.tokenId);
+
+            if (token.ownerOf(order.tokenId) != msg.sender) revert OrderFulfillmentFailed();
 
             emit OrderFulfilled(orderHash, msg.sender);
             return true;
@@ -421,12 +416,13 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         return _fulfillOrderInternal(orderHash, order, value);
     }
 
-    /// @notice Internal function to remove an order using pre-loaded order data.
-    /// @dev Optimized version for batch operations to avoid redundant storage reads.
+    /// @notice Internal function to remove an order from the marketplace.
+    /// @dev Validates that the caller is the order creator and removes the order.
     /// @param orderHash The hash of the order to remove.
-    /// @param order Pre-loaded order data from memory.
     /// @return success Whether the order removal was successful.
-    function _removeOrderInternal(bytes32 orderHash, Order memory order) internal returns (bool) {
+    function _removeOrderInternal(bytes32 orderHash) internal returns (bool) {
+        Order memory order = getOrder(orderHash);
+
         if (order.seller == address(0)) return false;
         if (order.seller != msg.sender) return false;
 
@@ -434,14 +430,5 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         delete activeOrderHash[order.nftContract][order.tokenId];
         emit OrderRemoved(orderHash);
         return true;
-    }
-
-    /// @notice Internal function to remove an order from the marketplace.
-    /// @dev Validates that the caller is the order creator and removes the order.
-    /// @param orderHash The hash of the order to remove.
-    /// @return success Whether the order removal was successful.
-    function _removeOrderInternal(bytes32 orderHash) internal returns (bool) {
-        Order memory order = getOrder(orderHash);
-        return _removeOrderInternal(orderHash, order);
     }
 }
