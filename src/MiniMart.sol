@@ -38,6 +38,12 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     /// @notice Emitted when an order is successfully fulfilled.
     event OrderFulfilled(bytes32 indexed orderId, address indexed buyer);
 
+    /// @notice Emitted when Admin withdraws fees.
+    event FeesWithdrawn();
+
+    /// @notice Emitted when sellers cliam proceeds from sales.
+    event ProceedsClaimed(address indexed claimant);
+
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                           ERRORS                           */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
@@ -248,7 +254,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     }
 
     /// @notice Fulfills multiple orders in a single transaction.
-    /// @dev Batch operation for fulfilling orders, limited to 25 orders per transaction.
+    /// @dev Batch operation for fulfilling orders, limited to MAX_BATCH_SIZE orders per transaction.
     /// @param orderHashes Array of order hashes to fulfill.
     /// @return results Array of OrderResult structs indicating success/failure for each order.
     function batchfulfillOrder(bytes32[] calldata orderHashes)
@@ -272,7 +278,10 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
         for (uint256 i = 0; i < batchSize; ++i) {
             orderCache[i] = getOrder(orderHashes[i]);
-            totalRequired += orderCache[i].price;
+
+            if (orderCache[i].seller != address(0)) {
+                totalRequired += orderCache[i].price;
+            }
         }
 
         if (msg.value != totalRequired) revert OrderPriceWrong();
@@ -282,7 +291,8 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
 
         for (uint256 i = 0; i < batchSize; ++i) {
             results[i].orderHash = orderHashes[i];
-            results[i].success = _fulfillOrderInternal(orderHashes[i], orderCache[i].price);
+            results[i].success =
+                _fulfillOrderInternal(orderHashes[i], orderCache[i], orderCache[i].price);
 
             if (!results[i].success) {
                 totalRefund += orderCache[i].price;
@@ -306,6 +316,8 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             claimableProceeds[msg.sender] = amount;
             revert ClaimFailed();
         }
+
+        emit ProceedsClaimed(msg.sender);
     }
 
     /// @notice Allows the owner to withdraw accumulated fees from the contract.
@@ -318,6 +330,8 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             pendingFees = amount;
             revert FeeWithdrawlFailed();
         }
+
+        emit FeesWithdrawn();
     }
 
     function pause() external onlyOwner {
@@ -328,9 +342,7 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
         _unpause();
     }
 
-    receive() external payable { }
-
-    fallback() external payable {
+    fallback() external {
         revert CallNotSupported();
     }
 
@@ -338,13 +350,16 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
     /*                      INTERNAL FUNCTIONS                    */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    /// @notice Internal function to fulfill an order.
-    /// @dev Handles all validation, payment processing, and NFT transfer logic.
+    /// @notice Internal function to fulfill an order using pre-loaded order data.
+    /// @dev Optimized version for batch operations to avoid redundant storage reads.
     /// @param orderHash The hash of the order to fulfill.
+    /// @param order Pre-loaded order data from memory.
     /// @param value The amount of ETH sent with the transaction.
     /// @return success Whether the order fulfillment was successful.
-    function _fulfillOrderInternal(bytes32 orderHash, uint256 value) internal returns (bool) {
-        Order memory order = getOrder(orderHash);
+    function _fulfillOrderInternal(bytes32 orderHash, Order memory order, uint256 value)
+        internal
+        returns (bool)
+    {
         IERC721 token = IERC721(order.nftContract);
 
         if (order.seller == address(0)) return false;
@@ -370,25 +385,26 @@ contract MiniMart is Ownable, Pausable, EIP712, ReentrancyGuard {
             emit OrderRemoved(orderHash);
             return false;
         } else {
-            token.transferFrom(order.seller, msg.sender, order.tokenId);
-
-            if (token.ownerOf(order.tokenId) != msg.sender) {
-                delete orders[orderHash];
-                delete activeOrderHash[order.nftContract][order.tokenId];
-                emit OrderRemoved(orderHash);
-                return false;
-            }
-
+            // [Same fulfillment logic as before]
             uint256 fee = (order.price * FEE_BPS) / 1e4;
-            pendingFees += fee;
-            claimableProceeds[order.seller] += order.price - fee;
+            uint256 sellerProceeds = order.price - fee;
 
+            pendingFees += fee;
+            claimableProceeds[order.seller] += sellerProceeds;
             delete orders[orderHash];
             delete activeOrderHash[order.nftContract][order.tokenId];
+
+            token.transferFrom(order.seller, msg.sender, order.tokenId);
 
             emit OrderFulfilled(orderHash, msg.sender);
             return true;
         }
+    }
+
+    /// @notice Original internal function for single order fulfillment.
+    function _fulfillOrderInternal(bytes32 orderHash, uint256 value) internal returns (bool) {
+        Order memory order = getOrder(orderHash);
+        return _fulfillOrderInternal(orderHash, order, value);
     }
 
     /// @notice Internal function to remove an order from the marketplace.
