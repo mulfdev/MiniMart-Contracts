@@ -10,15 +10,16 @@ contract Deploy is Script {
     ICREATE3Factory constant FACTORY = ICREATE3Factory(0x9fBB3DF7C40Da2e5A0dE984fFE2CCB7C47cd0ABf);
 
     function run() external {
-        vm.createSelectFork("base_sepolia");
+        vm.createSelectFork("base");
 
         bytes32 salt = keccak256("af8c16279a3fe618b01cf70aa0d6794324380010b45af2d58716cc688d061416");
         address eoaDeployer = msg.sender;
 
         console.log("Deployer (EOA):", eoaDeployer);
 
-        bytes memory initCode =
-            abi.encodePacked(type(MiniMart).creationCode, abi.encode(eoaDeployer, "MiniMart", "1"));
+        bytes memory initCode = abi.encodePacked(
+            type(MiniMart).creationCode, abi.encode(eoaDeployer, "MiniMart", "1.1")
+        );
 
         address predicted = FACTORY.getDeployed(eoaDeployer, salt);
         console.log("Predicted Address:", predicted);
