@@ -38,3 +38,7 @@ This is the core contract. It implements the EIP-712 standard to create verifiab
 1.  **Seller:** Creates an `Order` struct with sale details (price, tokenId, etc.) and signs its EIP-712 hash.
 2.  **Buyer:** Submits the `Order` struct and the seller's `signature` to the `addOrder()` function. The contract verifies the signature and lists the order.
 3.  **Buyer:** Calls `fulfillOrder()` with the correct `msg.value` to purchase the NFT. The contract verifies all conditions (e.g., ownership, approval), transfers the NFT to the buyer, and pays the seller (minus fees).
+
+
+*Most recent deploy*
+> 0x3e8B8b44cC9bf47e25dEF41aCf8bB43e1f36adBE
